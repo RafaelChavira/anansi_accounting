@@ -13,6 +13,10 @@ $this->params['breadcrumbs'][] = ['label' => Yii::t('app', 'Movements'), 'url' =
 $this->params['breadcrumbs'][] = $this->title;
 \yii\web\YiiAsset::register($this);
 
+// Obtener formatter del business para respecter separadores decimales/miles (igual que en creación de requisición e index)
+$businessData = \backend\helpers\RedisKeys::getValue(\backend\helpers\RedisKeys::BUSINESS_KEY);
+$business = $businessData ? \common\models\Business::findOne(['id' => $businessData['id']]) : null;
+
 // CSS para mejorar la presentación
 $this->registerCss("
     .movement-view .card {
@@ -179,6 +183,7 @@ $this->registerCss("
 
                     <h6 class="mt-4 mb-3">Insumos Solicitados</h6>
                     
+                    <div id="view-business-format-config" data-decimal-sep="<?= Html::encode($business ? $business->decimal_separator : ',') ?>" data-thousand-sep="<?= Html::encode($business ? $business->thousands_separator : '.') ?>" style="display:none;"></div>
                     <?php if ($model->status !== 'fulfilled' && !Yii::$app->user->can('consumption_requester')): ?>
                         <?php 
                         $form = \yii\widgets\ActiveForm::begin([
@@ -247,17 +252,17 @@ $this->registerCss("
                                             <?php endif; ?>
                                         </td>
                                         <td class="text-center">
-                                            <strong><?= Yii::$app->formatter->asDecimal($item->quantity_requested, 2) ?></strong>
+                                            <strong><?= formatNumber($item->quantity_requested, 3) ?></strong>
                                             <?= $item->ingredient ? Html::encode($item->ingredient->portion_um ?? $item->ingredient->um) : '' ?>
                                         </td>
                                         <td class="text-center">
                                             <?php if ($fulfilledQty > 0): ?>
                                                 <span class="badge bg-success">
-                                                    <?= Yii::$app->formatter->asDecimal($fulfilledQty, 2) ?>
+                                                    <?= formatNumber($fulfilledQty, 3) ?>
                                                 </span>
                                                 <br>
                                                 <small class="text-muted">
-                                                    (<?= number_format(($fulfilledQty / $item->quantity_requested) * 100, 1) ?>%)
+                                                    (<?= formatNumber(($fulfilledQty / $item->quantity_requested) * 100, 1) ?>%)
                                                 </small>
                                             <?php else: ?>
                                                 <span class="text-muted">-</span>
@@ -266,7 +271,7 @@ $this->registerCss("
                                         <td class="text-center">
                                             <?php if ($pendingQty > 0.01): ?>
                                                 <span class="badge bg-warning text-dark" style="font-size: 0.95rem;">
-                                                    <?= Yii::$app->formatter->asDecimal($pendingQty, 2) ?>
+                                                    <?= formatNumber($pendingQty, 3) ?>
                                                 </span>
                                             <?php else: ?>
                                                 <span class="badge bg-success">✓ Completo</span>
@@ -280,21 +285,21 @@ $this->registerCss("
                                                     $maxAllowed = $pendingQty * 1.30;
                                                     ?>
                                                     <?= Html::input('text', "fulfill_quantities[{$item->id}]", 
-                                                        number_format($suggestedQty, 2, ',', ''), 
+                                                        formatNumber($suggestedQty, 3), 
                                                         [
                                                             'class' => 'form-control form-control-sm text-center fulfill-quantity-input',
                                                             'style' => 'width: 100px; display: inline-block; font-weight: bold;',
                                                             'data-pending' => $pendingQty,
                                                             'data-available' => $availableStock,
                                                             'data-max-allowed' => $maxAllowed,
-                                                            'placeholder' => '0,00',
+                                                            'placeholder' => formatNumber(0, 3),
                                                             'pattern' => '[0-9]+([,\.][0-9]+)?'
                                                         ]
                                                     ) ?>
                                                     <br>
                                                     <small class="text-muted">
-                                                        Stock: <?= number_format($availableStock, 2, ',', '') ?> | 
-                                                        Máx: <?= number_format($maxAllowed, 2, ',', '') ?> (+30%)
+                                                        Stock: <?= formatNumber($availableStock, 2) ?> | 
+                                                        Máx: <?= formatNumber($maxAllowed, 3) ?> (+30%)
                                                     </small>
                                                     <?php if ($availableStock < $pendingQty): ?>
                                                         <br><small class="text-danger">
@@ -323,7 +328,7 @@ $this->registerCss("
                                         </td>
                                         <?php if (!Yii::$app->user->can('consumption_requester')): ?>
                                             <td class="text-end">
-                                                <?= Yii::$app->formatter->asCurrency($item->cost_at_request ?? 0) ?>
+                                                <?= formatPrice($item->cost_at_request ?? 0) ?>
                                             </td>
                                         <?php endif; ?>
                                         <td class="text-center">
@@ -352,7 +357,7 @@ $this->registerCss("
                                         ?>
                                         <td colspan="<?= $colspanBase ?>" class="text-end"><strong>Total Estimado:</strong></td>
                                         <td></td>
-                                        <td class="text-end"><strong><?= Yii::$app->formatter->asCurrency($totalEstimated) ?></strong></td>
+                                        <td class="text-end"><strong><?= formatPrice($totalEstimated) ?></strong></td>
                                         <td></td>
                                     </tr>
                                     <?php if ($hasPending && $model->status !== 'fulfilled'): ?>
@@ -458,8 +463,27 @@ $this->registerCss("
 <?php
 // Script para manejar el envío del formulario desde el modal
 if ($model->type === \common\models\Movement::TYPE_REQUISITION && $model->status !== 'fulfilled' && !Yii::$app->user->can('consumption_requester')) {
-    $this->registerJs(<<<JS
-        // Permitir entrada con coma decimal en los inputs de cantidad con validación en tiempo real
+    $this->registerJs(<<<'JS'
+        var viewCfg = document.getElementById('view-business-format-config');
+        var businessDecimalSep = viewCfg ? viewCfg.getAttribute('data-decimal-sep') : ',';
+        var businessThousandSep = viewCfg ? viewCfg.getAttribute('data-thousand-sep') : '.';
+        function normalizeBusinessNumber(str) {
+            if (!str) return '';
+            var val = str.trim();
+            if (businessThousandSep) {
+                val = val.split(businessThousandSep).join('');
+            }
+            if (businessDecimalSep !== '.') {
+                val = val.split(businessDecimalSep).join('.');
+            }
+            if (isNaN(val) && str.indexOf('.') !== -1 && businessDecimalSep === ',') {
+                var alt = str.split(',').join('').replace('.', '.');
+                if (!isNaN(alt) && alt !== '') val = alt;
+            }
+            return val;
+        }
+
+        // Permitir entrada con separador decimal del business en los inputs de cantidad con validación en tiempo real
         $(document).on('input', '.fulfill-quantity-input', function() {
             var input = $(this);
             var inputValue = input.val();
@@ -470,8 +494,8 @@ if ($model->type === \common\models\Movement::TYPE_REQUISITION && $model->status
                 return;
             }
             
-            // Reemplazar coma por punto para validación numérica
-            var normalizedValue = inputValue.replace(',', '.');
+            // Normalizar usando separadores del business
+            var normalizedValue = normalizeBusinessNumber(inputValue);
             
             // Validar que sea un número válido
             if (!isNaN(normalizedValue) && normalizedValue !== '') {
@@ -502,8 +526,7 @@ if ($model->type === \common\models\Movement::TYPE_REQUISITION && $model->status
             form.find('input[name^="fulfill_quantities"]').each(function() {
                 var inputValue = $(this).val();
                 if (inputValue) {
-                    // Reemplazar coma por punto para envío al servidor
-                    var normalizedValue = inputValue.replace(',', '.');
+                    var normalizedValue = normalizeBusinessNumber(inputValue);
                     $(this).val(normalizedValue);
                 }
             });

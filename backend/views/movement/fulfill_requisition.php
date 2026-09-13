@@ -7,6 +7,9 @@ use yii\widgets\ActiveForm;
 /* @var $model common\models\Movement */
 /* @var $items array */
 
+$businessData = \backend\helpers\RedisKeys::getValue(\backend\helpers\RedisKeys::BUSINESS_KEY);
+$business = $businessData ? \common\models\Business::findOne(['id' => $businessData['id']]) : null;
+
 $this->title = 'Surtir Requisición #' . $model->requisition_number;
 $this->params['breadcrumbs'][] = ['label' => 'Movimientos', 'url' => ['index']];
 $this->params['breadcrumbs'][] = ['label' => 'Requisición #' . $model->requisition_number, 'url' => ['view', 'id' => $model->id]];
@@ -55,6 +58,7 @@ $this->params['breadcrumbs'][] = 'Surtir';
                 </div>
             <?php endif; ?>
 
+            <div id="business-format-config" data-decimal-sep="<?= Html::encode($fulfillDecimalSep) ?>" data-thousand-sep="<?= Html::encode($fulfillThousandSep) ?>" style="display:none;"></div>
             <?php $form = ActiveForm::begin([
                 'action' => ['convert-to-output', 'id' => $model->id],
                 'method' => 'post',
@@ -100,18 +104,18 @@ $this->params['breadcrumbs'][] = 'Surtir';
                                 </td>
                                 <td class="text-center">
                                     <span class="badge bg-<?= $availableStock > 0 ? 'info' : 'danger' ?>">
-                                        <?= number_format($availableStock, 2) ?> 
+                                        <?= formatNumber($availableStock, 2) ?> 
                                         <?= Html::encode($ingredient ? ($ingredient->portion_um ?? $ingredient->um) : '') ?>
                                     </span>
                                 </td>
                                 <td class="text-center">
-                                    <strong><?= number_format($item->quantity_requested, 2) ?></strong>
+                                    <strong><?= formatNumber($item->quantity_requested, 3) ?></strong>
                                     <?= Html::encode($ingredient ? ($ingredient->portion_um ?? $ingredient->um) : '') ?>
                                 </td>
                                 <td class="text-center">
                                     <?php if ($alreadyFulfilled > 0): ?>
                                         <span class="badge bg-success">
-                                            <?= number_format($alreadyFulfilled, 2) ?>
+                                            <?= formatNumber($alreadyFulfilled, 3) ?>
                                         </span>
                                     <?php else: ?>
                                         <span class="text-muted">-</span>
@@ -120,7 +124,7 @@ $this->params['breadcrumbs'][] = 'Surtir';
                                 <td class="text-center">
                                     <?php if ($pending > 0): ?>
                                         <span class="badge bg-warning text-dark">
-                                            <?= number_format($pending, 2) ?>
+                                            <?= formatNumber($pending, 3) ?>
                                             <?= Html::encode($ingredient ? ($ingredient->portion_um ?? $ingredient->um) : '') ?>
                                         </span>
                                     <?php else: ?>
@@ -130,18 +134,16 @@ $this->params['breadcrumbs'][] = 'Surtir';
                                 <td class="text-center">
                                     <?php if ($pending > 0): ?>
                                         <input 
-                                            type="number" 
+                                            type="text" 
                                             name="fulfill_quantities[<?= $item->id ?>]" 
                                             class="form-control form-control-sm text-center fulfill-quantity-input"
-                                            value="<?= number_format($suggestedQuantity, 2, '.', '') ?>"
-                                            min="0"
-                                            max="<?= $pending ?>"
-                                            step="0.01"
+                                            value="<?= formatNumber($suggestedQuantity, 3) ?>"
                                             data-max="<?= $pending ?>"
                                             data-available="<?= $availableStock ?>"
+                                            placeholder="<?= formatNumber(0, 3) ?>"
                                             style="font-weight: bold;"
                                         />
-                                        <small class="text-muted">Máx: <?= number_format($pending, 2) ?></small>
+                                        <small class="text-muted">Máx: <?= formatNumber($pending, 3) ?></small>
                                         <?php if ($availableStock < $pending): ?>
                                             <br><small class="text-danger">
                                                 <i class="bx bx-error-circle"></i> Stock insuficiente
@@ -246,17 +248,42 @@ $this->params['breadcrumbs'][] = 'Surtir';
 <?php
 $this->registerJs(<<<'JS'
 $(document).ready(function() {
+    var cfg = document.getElementById('business-format-config');
+    var businessDecimalSep = cfg ? cfg.getAttribute('data-decimal-sep') : ',';
+    var businessThousandSep = cfg ? cfg.getAttribute('data-thousand-sep') : '.';
+    function normalizeBusinessNumber(str) {
+        if (!str) return '';
+        var val = str.trim();
+        if (businessThousandSep) {
+            val = val.split(businessThousandSep).join('');
+        }
+        if (businessDecimalSep !== '.') {
+            val = val.split(businessDecimalSep).join('.');
+        }
+        if (isNaN(val) && str.indexOf('.') !== -1 && businessDecimalSep === ',') {
+            var alt = str.split(',').join('').replace('.', '.');
+            if (!isNaN(alt) && alt !== '') val = alt;
+        }
+        return val;
+    }
+    function formatBusinessNumber(val) {
+        if (isNaN(val)) return '';
+        var parts = parseFloat(val).toFixed(3).split('.');
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, businessThousandSep);
+        return parts.join(businessDecimalSep);
+    }
     // Validar cantidades al cambiar
     $('.fulfill-quantity-input').on('input change', function() {
         const $input = $(this);
-        const value = parseFloat($input.val()) || 0;
+        const rawVal = normalizeBusinessNumber($input.val());
+        const value = parseFloat(rawVal) || 0;
         const max = parseFloat($input.data('max'));
         const available = parseFloat($input.data('available'));
         const $row = $input.closest('tr');
         
-        // Validar que no exceda el máximo
+        // Validar que no exceda el maximo
         if (value > max) {
-            $input.val(max.toFixed(2));
+            $input.val(formatBusinessNumber(max));
             showToast('La cantidad no puede exceder el saldo pendiente', 'warning');
         }
         
@@ -278,7 +305,8 @@ $(document).ready(function() {
         let insufficientStock = 0;
         
         $('.fulfill-quantity-input').each(function() {
-            const value = parseFloat($(this).val()) || 0;
+            const raw = normalizeBusinessNumber($(this).val());
+            const value = parseFloat(raw) || 0;
             const available = parseFloat($(this).data('available'));
             
             if (value > 0) {
@@ -319,7 +347,7 @@ $(document).ready(function() {
         }
     }
     
-    // Función para mostrar toast
+    // Funcion para mostrar toast
     function showToast(message, type = 'info') {
         const bgClass = type === 'warning' ? 'bg-warning' : (type === 'error' ? 'bg-danger' : 'bg-info');
         const toastHtml = `
@@ -344,13 +372,14 @@ $(document).ready(function() {
         });
     }
     
-    // Validación antes de enviar
+    // Validacion antes de enviar
     $('form').on('submit', function(e) {
         let hasQuantities = false;
         let hasInsufficientStock = false;
         
         $('.fulfill-quantity-input').each(function() {
-            const value = parseFloat($(this).val()) || 0;
+            const raw = normalizeBusinessNumber($(this).val());
+            const value = parseFloat(raw) || 0;
             const available = parseFloat($(this).data('available'));
             
             if (value > 0) {
@@ -369,17 +398,22 @@ $(document).ready(function() {
         }
         
         if (hasInsufficientStock) {
-            if (!confirm('Algunos items tienen stock insuficiente. El sistema surtirá solo lo disponible. ¿Desea continuar?')) {
+            if (!confirm('Algunos items tienen stock insuficiente. El sistema surtira solo lo disponible. Desea continuar?')) {
                 e.preventDefault();
                 return false;
             }
         }
+        // Normalizar valores antes de enviar al servidor (punto decimal)
+        $('.fulfill-quantity-input').each(function() {
+            const raw = normalizeBusinessNumber($(this).val());
+            if (raw !== '') $(this).val(raw);
+        });
     });
     
     // Inicializar resumen
     updateSummary();
     
-    // Atajos de teclado para navegación
+    // Atajos de teclado para navegacion
     $('.fulfill-quantity-input').on('keydown', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -401,6 +435,7 @@ $(document).ready(function() {
 JS
 );
 ?>
+
 
 <!-- Contenedor para toasts -->
 <div id="toast-container" class="position-fixed top-0 end-0 p-3" style="z-index: 1080;"></div>
