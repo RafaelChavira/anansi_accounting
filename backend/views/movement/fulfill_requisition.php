@@ -58,7 +58,7 @@ $this->params['breadcrumbs'][] = 'Surtir';
                 </div>
             <?php endif; ?>
 
-            <div id="business-format-config" data-decimal-sep="<?= Html::encode($fulfillDecimalSep) ?>" data-thousand-sep="<?= Html::encode($fulfillThousandSep) ?>" style="display:none;"></div>
+            <div id="business-format-config" data-decimal-sep="<?= Html::encode($business ? $business->decimal_separator : ',') ?>" data-thousand-sep="<?= Html::encode($business ? $business->thousands_separator : '.') ?>" style="display:none;"></div>
             <?php $form = ActiveForm::begin([
                 'action' => ['convert-to-output', 'id' => $model->id],
                 'method' => 'post',
@@ -144,9 +144,9 @@ $this->params['breadcrumbs'][] = 'Surtir';
                                             style="font-weight: bold;"
                                         />
                                         <small class="text-muted">Máx: <?= formatNumber($pending, 3) ?></small>
-                                        <?php if ($availableStock < $pending): ?>
+                                        <?php if ($availableStock < $pending || in_array($item->availability_status, ['insufficient', 'unavailable'])): ?>
                                             <br><small class="text-danger">
-                                                <i class="bx bx-error-circle"></i> Stock insuficiente
+                                                <i class="bx bx-error-circle"></i> Insuficiente
                                             </small>
                                         <?php endif; ?>
                                     <?php else: ?>

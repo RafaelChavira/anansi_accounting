@@ -301,7 +301,7 @@ $this->registerCss("
                                                         Stock: <?= formatNumber($availableStock, 2) ?> | 
                                                         Máx: <?= formatNumber($maxAllowed, 3) ?> (+30%)
                                                     </small>
-                                                    <?php if ($availableStock < $pendingQty): ?>
+                                                    <?php if ($availableStock < $pendingQty || in_array($item->availability_status, ['insufficient', 'unavailable'])): ?>
                                                         <br><small class="text-danger">
                                                             <i class="bx bx-error-circle"></i> Insuficiente
                                                         </small>
