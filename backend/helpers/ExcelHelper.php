@@ -1549,6 +1549,163 @@ public static function generateMovementTemplate($businessId = null)
     $writer->save('php://output');
     exit(200);
 }
+public static function importIngredients(Business $business, $fileName)
+    {
+        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($fileName);
+
+        $ingredientData = [];
+        $test = array();
+
+        $rowIterator = $spreadsheet->getActiveSheet()->getRowIterator();
+
+        while (true) {
+            $cellIterator = $rowIterator->current()->getCellIterator('A', 'I');
+            //var_dump($cellIterator->current()->getValue());
+            if($rowIterator->current()->getRowIndex() != 1) {
+                if (empty($cellIterator->current()->getValue())) {
+                    break;
+                }
+                $data = [];
+                $data['_row'] = $rowIterator->current()->getRowIndex(); // Guardar número de fila para mensajes de error
+                $data['key'] = strval($cellIterator->current()->getValue()); // A - Clave
+                $cellIterator->next();
+                $data['ingredient'] = $cellIterator->current()->getValue(); // B - Insumo
+                $cellIterator->next();
+                $data['brand'] = $cellIterator->current()->getValue() !== null ? strval($cellIterator->current()->getValue()) : ''; // C - Marca
+                $cellIterator->next();
+                // Obtener presentación como string, manejando cualquier tipo de contenido
+                // Usar getFormattedValue() para obtener el texto tal como se ve en Excel
+                // Esto maneja correctamente números, texto, símbolos y fórmulas
+                $presentationCell = $cellIterator->current();
+                try {
+                    // Intentar obtener el valor formateado (como aparece en Excel)
+                    $presentationValue = $presentationCell->getFormattedValue();
+                } catch (\Exception $e) {
+                    // Si falla, usar el valor calculado o el raw value
+                    $presentationValue = $presentationCell->getCalculatedValue() ?? $presentationCell->getValue();
+                }
+                // Asegurar que sea string y manejar null/empty
+                $data['presentation'] = $presentationValue !== null ? strval($presentationValue) : '';
+                $cellIterator->next();
+                $data['category_id'] = $cellIterator->current()->getValue(); // C - Categoría
+                $cellIterator->next();
+                $data['um'] = $cellIterator->current()->getValue(); // D - Unidad de compra
+                $cellIterator->next();
+                $data['portion_um'] = $cellIterator->current()->getValue(); // E - Unidad de cocina
+                $cellIterator->next();
+                $data['yield'] = $cellIterator->current()->getValue(); // F - Factor de Rendimiento
+                $cellIterator->next();
+                $data['portions_per_unit'] = $cellIterator->current()->getValue(); // G - Porciones por unidad
+                $cellIterator->next();
+                $data['price'] = $cellIterator->current()->getValue(); // I - Precio
+                $cellIterator->next();
+                $data['observations'] = $cellIterator->current()->getValue(); // H - Observaciones
+                $cellIterator->next();
+                
+                // Validar campos requeridos para evitar divisiones por cero
+                $errors = [];
+                
+                if (empty($data['portion_um']) || trim($data['portion_um']) === '') {
+                    $errors[] = "La 'Unidad de Uso' es obligatoria para el insumo '{$data['ingredient']}'";
+                }
+                
+                if (empty($data['portions_per_unit']) || !is_numeric($data['portions_per_unit']) || $data['portions_per_unit'] <= 0) {
+                    $errors[] = "Las 'Equivalencias' son obligatorias y deben ser un número mayor a 0 para el insumo '{$data['ingredient']}'";
+                }
+                
+                if (empty($data['yield']) || !is_numeric($data['yield']) || $data['yield'] <= 0) {
+                    $errors[] = "El 'Factor de Rendimiento' es obligatorio y debe ser un número mayor a 0 para el insumo '{$data['ingredient']}'";
+                }
+                
+                if (!empty($errors)) {
+                    throw new \Exception(implode("\n", $errors));
+                }
+                
+                $price = (float)preg_replace('/[^\d.]/', '', $data['price']); // Eliminar símbolos no numéricos
+                $yieldNum = (float)preg_replace('/[^\d.]/', '', $data['yield']); // Eliminar símbolos no numéricos
+                // unit_price = purchase price ÷ kitchen units per purchase unit
+                $data['unit_price'] = ($data['portions_per_unit'] > 0) ? ($price / (float)$data['portions_per_unit']) : $price;
+                // adjusted_price = unit_price ÷ yield factor  (matches JS formula: (price/portions)/(yield/100))
+                $data['adjusted_price'] = ($yieldNum > 0) ? ($data['unit_price'] / ($yieldNum / 100.0)) : $data['unit_price'];
+                $data['business_id'] = $business->id;
+                $data['quantity'] = 0;
+                /// extract category id
+                //var_dump($data['category_id']);
+                $data['category_id'] = explode(' - ', $data['category_id'])[0];
+                $data['category_id'] = trim($data['category_id']);
+                //var_dump($data['category_id']);
+                /// check if category exists
+                $category = Category::find()
+                    ->where([
+                        'name' => $data['category_id'],
+                    ])
+                    ->andWhere([
+                        'or',
+                        ['business_id' => $business->id],
+                        ['business_id' => null]
+                    ])
+                    ->one();
+                if(empty($category)){
+                    throw new HttpException(400, "No existe ninguna categoría con el identificador \"{$data['category_id']}\"");
+                }
+
+                $data['category_id'] = $category->id;
+
+                $ingredientData[] = $data;
+                $test[] = $data;
+                
+            }
+
+            $rowIterator->next();
+        }
+        $transaction = \Yii::$app->db->beginTransaction();
+        try {
+            foreach ($ingredientData as $data) {
+                $rowNumber = $data['_row'] ?? '?';
+                unset($data['_row']);
+                $ingredientStock = new IngredientStock();
+                $_price = $data['price'];
+                unset($data['price']);
+                if ($ingredientStock->load($data, '') && $ingredientStock->save()) {
+                    if( $_price != 0) {
+                        $price = new StockPrice([
+                            'price' => $_price,
+                            'stock_id' => $ingredientStock->id,
+                            'date' => date('Y-m-d')
+                        ]);
+                        if (!($price->load($data, '') && $price->save()) && $price->hasErrors()) {
+                        throw new HttpException(400, json_encode($price->errors));
+                    }
+                    }
+
+                    
+                }elseif ($ingredientStock->hasErrors()) {
+                    $errors = $ingredientStock->errors;
+                    // Agregar número de fila a cada mensaje de error
+                    $errorMessages = [];
+                    foreach ($errors as $attribute => $messages) {
+                        foreach ($messages as $msg) {
+                            $errorMessages[] = "Fila {$rowNumber}: {$msg}";
+                        }
+                    }
+                    throw new HttpException(400, implode('; ', $errorMessages));
+                }
+            }
+            $transaction->commit();
+        }catch (\Exception $e) {
+            $transaction->rollBack();
+            throw $e;
+        }
+//        \Yii::$app->db->createCommand()
+//            ->batchInsert(
+//                'ingredient_stock',
+//                ['key', 'ingredient', 'category_id', 'um', 'portion_um', 'yield','portions_per_unit', 'observations', 'business_id', 'quantity'],
+//                $ingredientData
+//            )
+//            ->execute();
+
+        return;
+    }
     public static function importIngredientsAdmin($fileName)
     {
         $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($fileName);
