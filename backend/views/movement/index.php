@@ -9,6 +9,7 @@ use yii\widgets\Pjax;
 /* @var $dataProvider yii\data\ActiveDataProvider */
 
 $isConsumptionRequester = Yii::$app->user->can('consumption_requester');
+$canDelete = Yii::$app->user->can('manage_users');
 $this->title = $isConsumptionRequester ? Yii::t('app', 'Historial de mis Requisiciones') : Yii::t('app', 'Movements');
 $this->params['breadcrumbs'][] = $this->title;
 
@@ -234,6 +235,14 @@ $business = \common\models\Business::findOne(['id' => $businessData['id']]);
             <div class="p-2">
                 <?= Html::a(Yii::t('app', 'Balance'), "#", ['class' => 'btn btn-warning', 'data-bs-toggle' => 'modal', 'data-bs-target' => '#modal-balance']) ?>
             </div>
+            <!-- <?php if ($canDelete): ?>
+            <div class="p-2">
+                <?= Html::a('<i class="bx bx-trash"></i> ' . Yii::t('app', 'Eliminar seleccionados'), '#', [
+                    'class' => 'btn btn-danger',
+                    'id' => 'btn-delete-movements'
+                ]) ?>
+            </div>
+            <?php endif; ?> -->
         <?php endif; ?>
     </div>
 
@@ -690,9 +699,10 @@ $business = \common\models\Business::findOne(['id' => $businessData['id']]);
     ];
 
     // Columna de acciones
+    $deleteTemplate = $canDelete ? ' {delete}' : '';
     $columns[] = [
         'class' => 'yii\grid\ActionColumn',
-        'template' => $isConsumptionRequester ? "{view} {update}" : "{view} {update} {convert}",
+        'template' => $isConsumptionRequester ? "{view} {update}" . $deleteTemplate : "{view} {update} {convert}" . $deleteTemplate,
         'buttons' => [
             'view' => function ($url, $model, $key) {
                 return \yii\bootstrap5\Html::a(
@@ -795,6 +805,41 @@ $business = \common\models\Business::findOne(['id' => $businessData['id']]);
                     }
                 }
                 return '';
+            },
+            'delete' => function ($url, $model, $key) use ($canDelete) {
+                if (!$canDelete) {
+                    return '';
+                }
+                // Usar modal de advertencia - no link directo
+                $typeLabel = $model->getFormattedType();
+                $ingredientName = '';
+                if (isset($model->_expandedItem) && $model->_expandedItem->ingredient) {
+                    $ingredientName = $model->_expandedItem->ingredient->ingredient;
+                } elseif ($model->ingredient) {
+                    $ingredientName = $model->ingredient->ingredient;
+                }
+                $qty = '';
+                if (isset($model->_expandedItem)) {
+                    $qty = $model->_expandedItem->quantity_requested;
+                } else {
+                    $qty = $model->quantity;
+                }
+                return \yii\bootstrap5\Html::a(
+                    '<i class="bx bx-trash"></i>',
+                    '#',
+                    [
+                        'class' => 'text-danger ms-2 btn-delete-single-movement',
+                        'title' => 'Eliminar movimiento',
+                        'data-bs-toggle' => 'tooltip',
+                        'data-bs-placement' => 'top',
+                        'data-id' => $model->id,
+                        'data-type' => $model->type,
+                        'data-typelabel' => $typeLabel,
+                        'data-ingredient' => $ingredientName,
+                        'data-quantity' => $qty,
+                        'data-um' => $model->um ?? ($model->ingredient->portion_um ?? ''),
+                    ]
+                );
             }
         ]
     ];
@@ -907,6 +952,17 @@ echo "<div id='balance-container'></div>";
     'title' => Yii::t('app', "Eliminar movimientos seleccionados"),
 ]);
 ?>
+<div class="alert alert-danger d-flex align-items-start gap-2 mb-3">
+    <i class="bx bx-error-circle fs-4"></i>
+    <div>
+        <strong>¡Advertencia! Esta acción es irreversible.</strong><br>
+        <span id="bulk-delete-warning-text"></span>
+        <ul class="mb-0 mt-1 small">
+            <li>Si es <strong>Entrada</strong>: se <strong>restará</strong> la cantidad al stock del insumo y se eliminará su precio asociado sin afectar otros precios.</li>
+            <li>Si es <strong>Salida</strong>: se <strong>sumará</strong> la cantidad al stock del insumo.</li>
+        </ul>
+    </div>
+</div>
 <p>¿Deseas eliminar todos los movimientos seleccionados o solo los de la página actual?</p>
 <div class="d-flex justify-content-end gap-3">
     <?= \yii\bootstrap5\Html::button(Yii::t('app', 'Cancelar'), [
@@ -951,6 +1007,13 @@ echo "<div id='balance-container'></div>";
     'title' => Yii::t('app', "Confirmar eliminación"),
 ]);
 ?>
+<div class="alert alert-danger d-flex align-items-start gap-2 mb-3">
+    <i class="bx bx-error-circle fs-4"></i>
+    <div>
+        <strong>¡Advertencia! Esta acción es irreversible.</strong><br>
+        Se revertirá el stock del insumo. Entradas restan stock y eliminan su precio sin afectar otros precios. Salidas suman stock.
+    </div>
+</div>
 <p>¿Estás seguro de que deseas eliminar <span id="selected-count-message-movements"></span> movimientos?</p>
 <div class="d-flex justify-content-end gap-3">
     <?= \yii\bootstrap5\Html::button(Yii::t('app', 'Cancelar'), [
@@ -1010,9 +1073,110 @@ echo "<div id='balance-container'></div>";
 \yii\bootstrap5\Modal::end();
 ?>
 
+<?php if ($canDelete): ?>
+<?php
+\yii\bootstrap5\Modal::begin([
+    'id' => 'modal-delete-single-movement',
+    'title' => Yii::t('app', "Confirmar eliminación"),
+]);
+?>
+<div class="alert alert-danger d-flex align-items-start gap-2 mb-3">
+    <i class="bx bx-error-circle fs-4"></i>
+    <div>
+        <strong>¡Advertencia! Esta acción es irreversible.</strong><br>
+        <span id="single-delete-warning-detail"></span>
+    </div>
+</div>
+<div class="bg-light p-3 rounded mb-3 small">
+    <div><strong>Tipo:</strong> <span id="single-delete-type"></span></div>
+    <div><strong>Insumo:</strong> <span id="single-delete-ingredient"></span></div>
+    <div><strong>Cantidad:</strong> <span id="single-delete-quantity"></span> <span id="single-delete-um"></span></div>
+</div>
+<div class="d-flex justify-content-end gap-3">
+    <?= \yii\bootstrap5\Html::button(Yii::t('app', 'Cancelar'), [
+        'class' => 'btn btn-secondary',
+        'data-bs-dismiss' => 'modal'
+    ]) ?>
+    <?= \yii\bootstrap5\Html::button(Yii::t('app', 'Sí, eliminar'), [
+        'class' => 'btn btn-danger',
+        'id' => 'confirm-delete-single-movement'
+    ]) ?>
+</div>
+<?php
+\yii\bootstrap5\Modal::end();
+?>
+<?php endif; ?>
+
+<?php if ($canDelete): ?>
+<?php
+$this->registerJs(<<<'JS'
+let pendingDeleteId = null;
+$(document).on('click', '.btn-delete-single-movement', function(e){
+    e.preventDefault();
+    const $btn = $(this);
+    pendingDeleteId = $btn.data('id');
+    const type = $btn.data('type');
+    const typeLabel = $btn.data('typelabel');
+    const ingredient = $btn.data('ingredient') || '-';
+    const qty = $btn.data('quantity') || '-';
+    const um = $btn.data('um') || '';
+    $('#single-delete-id').text(pendingDeleteId);
+    $('#single-delete-type').text(typeLabel);
+    $('#single-delete-ingredient').text(ingredient);
+    $('#single-delete-quantity').text(qty);
+    $('#single-delete-um').text(um);
+    let detail = '';
+    if(type === 'input'){
+        detail = 'Se eliminará una ENTRADA. Se restará '+qty+' '+um+' al stock del insumo \"'+ingredient+'\" y se eliminará solo el precio asociado a esta entrada, sin afectar otros precios.';
+    } else if(type === 'output'){
+        detail = 'Se eliminará una SALIDA. Se sumará '+qty+' '+um+' al stock del insumo \"'+ingredient+'\".';
+    } else {
+        detail = 'Se eliminará el movimiento. Requisiciones y órdenes no afectan stock (según configuración actual).';
+    }
+    $('#single-delete-warning-detail').text(detail);
+    const modalEl = document.getElementById('modal-delete-single-movement');
+    if(modalEl){ new bootstrap.Modal(modalEl).show(); }
+});
+$(document).on('click', '#confirm-delete-single-movement', function(){
+    if(!pendingDeleteId) return;
+    const $btn = $(this);
+    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span> Eliminando...');
+    $.ajax({
+        url: '/movement/delete',
+        type: 'POST',
+        data: { keys: [pendingDeleteId], _csrf: yii.getCsrfToken() },
+        success: function(data){
+            const modalEl = document.getElementById('modal-delete-single-movement');
+            if(modalEl){ bootstrap.Modal.getInstance(modalEl)?.hide(); }
+            if(data.success){
+                $.pjax.reload({container:'#movements-pjax', timeout:5000});
+            } else {
+                alert(data.message || 'Error al eliminar');
+            }
+        },
+        error: function(xhr){
+            alert('Error al eliminar: ' + (xhr.responseJSON?.message || xhr.responseText || 'Error desconocido'));
+        },
+        complete: function(){
+            $btn.prop('disabled', false).html('Sí, eliminar');
+            pendingDeleteId = null;
+        }
+    });
+});
+// Mejorar texto de advertencia bulk según selección
+$(document).on('click', '#btn-delete-movements', function(){
+    const keys = $('#movements-grid').yiiGridView('getSelectedRows');
+    if(keys.length>0){
+        $('#bulk-delete-warning-text').text('Has seleccionado '+keys.length+' movimiento(s). Esta acción revertirá el stock de cada insumo afectado.');
+    }
+});
+JS
+, \yii\web\View::POS_END);
+?>
+<?php endif; ?>
+
 <?php
 $this->registerJs("
-// Detector de cambio en elementos por página
 document.getElementById('per-page-selector-movements').addEventListener('change', function() {
     const pageSize = this.value;
     

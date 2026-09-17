@@ -91,7 +91,7 @@ class MovementController extends Controller
                         ],
                         'allow' => true,
                         'roles' => [
-                            'movements_list',
+                            'manage_users',
                         ],
                     ],
                     [
@@ -1028,74 +1028,105 @@ class MovementController extends Controller
 
     /**
      * Deletes an existing Movement model.
-     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * Solo rol manage_users puede borrar. Revierte stock para input/output.
+     * Requisiciones y orders NO tocan stock (según requerimiento actual).
      * @return mixed
      */
     public function actionDelete()
     {
-        if (Yii::$app->request->isPost) {
-            $ids = Yii::$app->request->post('keys'); // Recibir los IDs enviados desde el frontend
-    
-            try {
-                if ($ids === 'all') {
-                    // Delete all movements for the current business
-                    $businessData = RedisKeys::getValue(RedisKeys::BUSINESS_KEY);
-                    $business = Business::findOne(['id' => $businessData['id']]);
-                    Movement::deleteAll([
-                        'business_id' => $business->id
-                    ]);
-                    return $this->asJson(['success' => true]);
-                } else if (!empty($ids)) {
-                    // Delete selected movements
-                    foreach ($ids as $id) {
-                        $model = $this->findModel($id);
-                        if ($model) {
-                            $model->delete(); 
-                        }
-                    }
-                    return $this->asJson(['success' => true]);
-                }
-            } catch (\Exception $e) {
-                Yii::error('Error deleting movements: ' . $e->getMessage(), __METHOD__);
-                return $this->asJson([
-                    'success' => false, 
-                    'message' => 'Error al eliminar los movimientos: ' . $e->getMessage()
-                ]);
-            }
+        if (!Yii::$app->request->isPost) {
+            return $this->asJson(['success' => false, 'message' => 'Solicitud inválida']);
         }
-        
-        return $this->asJson([
-            'success' => false, 
-            'message' => 'Solicitud inválida'
-        ]);
+
+        if (!Yii::$app->user->can('manage_users')) {
+            return $this->asJson(['success' => false, 'message' => 'No tienes permiso para eliminar movimientos. Se requiere rol manage_users.']);
+        }
+
+        $ids = Yii::$app->request->post('keys');
+
+        $transaction = Yii::$app->db->beginTransaction();
+        try {
+            if ($ids === 'all') {
+                $businessData = RedisKeys::getValue(RedisKeys::BUSINESS_KEY);
+                $business = Business::findOne(['id' => $businessData['id']]);
+                if (!$business) {
+                    throw new \Exception('Negocio no encontrado');
+                }
+                $movements = Movement::find()->where(['business_id' => $business->id])->all();
+                foreach ($movements as $model) {
+                    $this->revertStockForDelete($model);
+                    if (!$model->delete()) {
+                        throw new \Exception('No se pudo eliminar movimiento ID ' . $model->id);
+                    }
+                }
+                $transaction->commit();
+                return $this->asJson(['success' => true]);
+            } elseif (!empty($ids) && is_array($ids)) {
+                foreach ($ids as $id) {
+                    $model = $this->findModel($id);
+                    $this->revertStockForDelete($model);
+                    if (!$model->delete()) {
+                        throw new \Exception('No se pudo eliminar movimiento ID ' . $id);
+                    }
+                }
+                $transaction->commit();
+                return $this->asJson(['success' => true]);
+            } else {
+                $transaction->rollBack();
+                return $this->asJson(['success' => false, 'message' => 'No se recibieron IDs para eliminar']);
+            }
+        } catch (\Exception $e) {
+            $transaction->rollBack();
+            Yii::error('Error deleting movements: ' . $e->getMessage(), __METHOD__);
+            $msg = preg_match('/SQL|INSERT|UPDATE|DELETE|SELECT/i', $e->getMessage()) ? 'Error al eliminar los movimientos. Intente nuevamente.' : $e->getMessage();
+            return $this->asJson(['success' => false, 'message' => $msg]);
+        }
     }
 
     /**
      * Deletes an existing Movement model by ID (single deletion).
-     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * Solo manage_users. Revierte stock si es input/output.
      * @param integer $id
      * @return mixed
      * @throws NotFoundHttpException if the model cannot be found
      */
     public function actionDeleteById($id)
     {
-        $this->findModel($id)->delete();
+        if (!Yii::$app->user->can('manage_users')) {
+            throw new \yii\web\ForbiddenHttpException('No tienes permiso para eliminar movimientos. Se requiere rol manage_users.');
+        }
+
+        $model = $this->findModel($id);
+        $transaction = Yii::$app->db->beginTransaction();
+        try {
+            $this->revertStockForDelete($model);
+            $model->delete();
+            $transaction->commit();
+        } catch (\Exception $e) {
+            $transaction->rollBack();
+            Yii::error('Error deleting movement by id: ' . $e->getMessage(), __METHOD__);
+            Yii::$app->session->setFlash('error', 'Error al eliminar el movimiento: ' . $e->getMessage());
+            return $this->redirect(['index']);
+        }
 
         return $this->redirect(['index']);
     }
 
     /**
      * Deletes existing Movement models by date.
-     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * Solo manage_users. Revierte stock para cada movimiento input/output.
      * @param string $fecha
      * @return mixed
      */
     public function actionDeleteByFecha($fecha)
     {
+        if (!Yii::$app->user->can('manage_users')) {
+            throw new \yii\web\ForbiddenHttpException('No tienes permiso para eliminar movimientos. Se requiere rol manage_users.');
+        }
+
         $businessData = \backend\helpers\RedisKeys::getValue(\backend\helpers\RedisKeys::BUSINESS_KEY);
         $businessId = $businessData['id'] ?? null;
         
-        // Buscar todos los movimientos para esta fecha y negocio
         $movements = Movement::find()->where(['fecha' => $fecha, 'business_id' => $businessId])->all();
         
         if (empty($movements)) {
@@ -1103,16 +1134,130 @@ class MovementController extends Controller
             return $this->redirect(['index']);
         }
         
-        $deletedCount = 0;
-        
-        // Eliminar cada movimiento
-        foreach ($movements as $movement) {
-            $movement->delete();
-            $deletedCount++;
+        $transaction = Yii::$app->db->beginTransaction();
+        try {
+            $deletedCount = 0;
+            foreach ($movements as $movement) {
+                $this->revertStockForDelete($movement);
+                if ($movement->delete() !== false) {
+                    $deletedCount++;
+                }
+            }
+            $transaction->commit();
+            Yii::$app->session->setFlash('success', "Se eliminaron {$deletedCount} movimientos de la fecha {$fecha}.");
+        } catch (\Exception $e) {
+            $transaction->rollBack();
+            Yii::error('Error deleting movements by fecha: ' . $e->getMessage(), __METHOD__);
+            Yii::$app->session->setFlash('error', 'Error al eliminar movimientos: ' . $e->getMessage());
         }
         
-        Yii::$app->session->setFlash('success', "Se eliminaron {$deletedCount} movimientos de la fecha {$fecha}.");
         return $this->redirect(['index']);
+    }
+
+    /**
+     * Revierte el efecto en ingredient_stock y stock_price al borrar un movimiento.
+     * - INPUT: resta quantity * portions_per_unit y elimina el StockPrice asociado.
+     * - OUTPUT: suma quantity (ya está en portion_um).
+     * - REQUISITION / ORDER: no toca nada (requerimiento actual).
+     * No afecta a otros insumos ni a otros precios.
+     * @param Movement $model
+     * @throws \Exception
+     */
+    private function revertStockForDelete(Movement $model)
+    {
+        // Solo input/output afectan inventario - requisiciones y orders se ignoran
+        if (!in_array($model->type, [Movement::TYPE_INPUT, Movement::TYPE_OUTPUT], true)) {
+            return;
+        }
+
+        if (empty($model->ingredient_id) || empty($model->quantity)) {
+            return;
+        }
+
+        $ingredient = \common\models\IngredientStock::findOne($model->ingredient_id);
+        if (!$ingredient) {
+            Yii::warning("IngredientStock ID {$model->ingredient_id} no encontrado para revertir movimiento {$model->id}", __METHOD__);
+            return;
+        }
+
+        if ($model->type === Movement::TYPE_INPUT) {
+            $portionsPerUnit = (float)($ingredient->portions_per_unit ?: 1);
+            $qtyInPortion = (float)$model->quantity * $portionsPerUnit;
+            $ingredient->quantity = (float)$ingredient->quantity - $qtyInPortion;
+            if (!$ingredient->save(false)) {
+                throw new \Exception('No se pudo revertir el stock del insumo ' . $ingredient->ingredient);
+            }
+            $this->deleteStockPriceForInput($model, $ingredient);
+        } elseif ($model->type === Movement::TYPE_OUTPUT) {
+            $ingredient->quantity = (float)$ingredient->quantity + (float)$model->quantity;
+            if (!$ingredient->save(false)) {
+                throw new \Exception('No se pudo revertir el stock del insumo ' . $ingredient->ingredient);
+            }
+            // OUTPUT nunca toca stock_price
+        }
+    }
+
+    /**
+     * Elimina SOLO el StockPrice generado por el movimiento de entrada.
+     * Evita borrar historial de otros precios. Si no encuentra coincidencia exacta, no borra nada.
+     * @param Movement $model
+     * @param \common\models\IngredientStock $ingredient
+     */
+    private function deleteStockPriceForInput(Movement $model, \common\models\IngredientStock $ingredient)
+    {
+        $dateStr = date('Y-m-d', strtotime($model->created_at));
+        $unitPrice = $model->unit_price;
+
+        // Intentar coincidencia exacta por unit_price + fecha
+        $query = \common\models\StockPrice::find()
+            ->where(['stock_id' => $ingredient->id])
+            ->andWhere(['date' => $dateStr])
+            ->orderBy(['id' => SORT_DESC]);
+
+        // Filtrar por unit_price si existe (con tolerancia float)
+        if ($unitPrice !== null && $unitPrice !== '') {
+            $candidates = $query->all();
+            $matched = null;
+            foreach ($candidates as $sp) {
+                if (abs((float)$sp->unit_price - (float)$unitPrice) < 0.0001) {
+                    $matched = $sp;
+                    break;
+                }
+                // fallback: comparar también por price si unit_price no coincide por redondeo
+                if (abs((float)$sp->price - (float)$unitPrice) < 0.0001) {
+                    $matched = $sp;
+                    break;
+                }
+            }
+            if ($matched) {
+                $matched->delete();
+                Yii::info("StockPrice ID {$matched->id} eliminado para revertir movimiento INPUT ID {$model->id}", __METHOD__);
+                return;
+            }
+            // Si hay candidates pero ninguno matchea unit_price, buscar sin filtro de fecha
+            $fallback = \common\models\StockPrice::find()
+                ->where(['stock_id' => $ingredient->id])
+                ->orderBy(['id' => SORT_DESC])
+                ->all();
+            foreach ($fallback as $sp) {
+                if (abs((float)$sp->unit_price - (float)$unitPrice) < 0.0001 || abs((float)$sp->price - (float)$unitPrice) < 0.0001) {
+                    // Solo borrar si es el más reciente con ese precio y fecha cercana
+                    if ($sp->date === $dateStr) {
+                        $sp->delete();
+                        Yii::info("StockPrice fallback ID {$sp->id} eliminado para revertir movimiento INPUT ID {$model->id}", __METHOD__);
+                    }
+                    return;
+                }
+            }
+            Yii::warning("No se encontró StockPrice coincidente para movimiento INPUT ID {$model->id} (unit_price={$unitPrice}, date={$dateStr}). No se borra ningún precio para no afectar historial.", __METHOD__);
+            return;
+        }
+
+        // Si no hay unit_price en el movimiento, intentar borrar el último de esa fecha
+        $lastOnDate = $query->one();
+        if ($lastOnDate) {
+            Yii::warning("Movimiento INPUT ID {$model->id} sin unit_price, no se elimina StockPrice automáticamente para evitar borrar historial. Revisar manualmente.", __METHOD__);
+        }
     }
 
     public function actionBalance()

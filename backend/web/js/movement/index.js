@@ -146,7 +146,7 @@ $(document).on('click', '#delete-current-page-movements', function() {
     $.ajax({
         url: '/movement/delete',
         type: 'POST',
-        data: { keys: keys }, // Enviar solo los IDs de la página actual
+        data: { keys: keys, _csrf: yii.getCsrfToken() },
         success: function(data) {
             console.log('Respuesta del servidor:', data);
             if (data.success) {
@@ -172,7 +172,7 @@ $(document).on('click', '#delete-all-movements', function() {
     $.ajax({
         url: '/movement/delete',
         type: 'POST',
-        data: { keys: 'all' }, // Enviar todos los IDs seleccionados
+        data: { keys: 'all', _csrf: yii.getCsrfToken() },
         success: function(data) {
             console.log('Respuesta del servidor:', data);
             if (data.success) {
@@ -198,7 +198,7 @@ $(document).on('click', '#confirm-delete-selected-movements', function() {
     $.ajax({
         url: '/movement/delete',
         type: 'POST',
-        data: { keys: keys }, // Enviar los IDs seleccionados
+        data: { keys: keys, _csrf: yii.getCsrfToken() },
         success: function(data) {
             console.log('Respuesta del servidor:', data);
             console.log('Tipo de data.success:', typeof data.success);
