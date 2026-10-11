@@ -1,0 +1,31 @@
+version: '3.2'
+
+# Ambiente de TESTING. Carpeta: /opt/docker/projects/anansi_accounting_test
+# BD: costeo_test (mismo servidor MySQL). Dominio: ver labels.
+
+services:
+
+  backend_test:
+    container_name: backend_costeo_test
+    build: backend
+    expose:
+      - 80
+    restart: unless-stopped
+    volumes:
+      - ~/.composer-docker/cache:/root/.composer/cache:delegated
+      - ./:/app
+      - ./docker/php/custom-config.ini:/usr/local/etc/php/conf.d/custom-config.ini
+      - ./docker/php/xdebug.ini:/usr/local/etc/php/conf.d/xdebug.ini
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.costeoapp-test-secure.entrypoints=websecure"
+      - "traefik.http.routers.costeoapp-test-secure.rule=Host(`test.sistemapararestaurantes.com`)"
+      # Basic auth ya definido en /opt/docker/proxy/data/configurations/dynamic.yml
+      # (los datos son copia de produccion; no exponer el test sin proteccion)
+      - "traefik.http.routers.costeoapp-test-secure.middlewares=user-auth@file"
+
+networks:
+  default:
+    external:
+      name: proxy
