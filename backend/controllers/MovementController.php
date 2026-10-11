@@ -1155,6 +1155,54 @@ class MovementController extends Controller
     }
 
     /**
+     * Al borrar una salida creada desde una requisición, resta la cantidad surtida del item
+     * correspondiente y recalcula el estatus de la requisición (pending / partially_fulfilled / fulfilled).
+     * @param Movement $output
+     */
+    private function revertRequisitionFulfillment(Movement $output)
+    {
+        $requisition = Movement::findOne($output->parent_requisition_id);
+        if (!$requisition || $requisition->type !== Movement::TYPE_REQUISITION) {
+            return;
+        }
+
+        $item = \common\models\RequisitionItem::findOne([
+            'requisition_id' => $requisition->id,
+            'ingredient_id' => $output->ingredient_id,
+        ]);
+        if ($item) {
+            $item->quantity_fulfilled = max(0, ($item->quantity_fulfilled ?? 0) - $output->quantity);
+            $item->save(false);
+        }
+
+        if ($requisition->status === 'cancelled') {
+            return;
+        }
+
+        $anyFulfilled = false;
+        $allFulfilled = true;
+        foreach ($requisition->getRequisitionItems()->all() as $reqItem) {
+            $fulfilled = $reqItem->quantity_fulfilled ?? 0;
+            if ($fulfilled > 0.01) {
+                $anyFulfilled = true;
+            }
+            if ($reqItem->quantity_requested - $fulfilled > 0.01) {
+                $allFulfilled = false;
+            }
+        }
+
+        if (!$anyFulfilled) {
+            $requisition->status = 'pending';
+            $requisition->fulfilled_by_user_id = null;
+        } elseif ($allFulfilled) {
+            $requisition->status = 'fulfilled';
+        } else {
+            $requisition->status = 'partially_fulfilled';
+        }
+        $requisition->save(false);
+    }
+
+    /**
      * Revierte el efecto en ingredient_stock y stock_price al borrar un movimiento.
      * - INPUT: resta quantity * portions_per_unit y elimina el StockPrice asociado.
      * - OUTPUT: suma quantity (ya está en portion_um).
@@ -1165,6 +1213,11 @@ class MovementController extends Controller
      */
     private function revertStockForDelete(Movement $model)
     {
+        // Una salida generada desde una requisición debe descontar lo surtido y recalcular su estatus
+        if ($model->type === Movement::TYPE_OUTPUT && !empty($model->parent_requisition_id)) {
+            $this->revertRequisitionFulfillment($model);
+        }
+
         // Solo input/output afectan inventario - requisiciones y orders se ignoran
         if (!in_array($model->type, [Movement::TYPE_INPUT, Movement::TYPE_OUTPUT], true)) {
             return;

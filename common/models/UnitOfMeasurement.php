@@ -43,6 +43,7 @@ class UnitOfMeasurement extends \yii\db\ActiveRecord
             [['name'], 'required'],
             [['name'], 'trim'], // Eliminar espacios al inicio y final
             [['name'], 'validateUniqueByFlags'],
+            [['is_purchase', 'is_kitchen', 'is_subrecipe_yield', 'is_subrecipe_um', 'is_recipe_yield', 'is_recipe_final_um'], 'validateFlagNotInUse'],
             [['business_id', 'custom', 'is_purchase', 'is_kitchen', 'is_subrecipe_yield', 'is_subrecipe_um', 'is_recipe_yield', 'is_recipe_final_um'], 'integer'],
             [['name'], 'string', 'max' => 255],
             [['type'], 'string', 'max' => 20],
@@ -55,8 +56,9 @@ class UnitOfMeasurement extends \yii\db\ActiveRecord
     }
 
     /**
-     * Valida que el nombre no esté repetido por cada flag/tipo (por negocio).
-     * Ej: no permitir dos registros con name='kilogramo' y is_purchase=1 para el mismo business_id.
+     * Valida que el nombre sea único por negocio (insensible a mayúsculas y espacios).
+     * Las unidades se guardan por nombre en insumos y recetas, así que un nombre es una sola unidad
+     * y sus usos (compra, uso, recetas...) se definen con las casillas, no con registros repetidos.
      */
     public function validateUniqueByFlags($attribute)
     {
@@ -66,36 +68,141 @@ class UnitOfMeasurement extends \yii\db\ActiveRecord
             $businessId = $business['id'] ?? null;
         }
 
-        // Normalizar nombre para comparación (insensible a mayúsculas)
-        $nameNormalized = mb_strtolower(trim($this->name));
+        $query = self::find()
+            ->where(['business_id' => $businessId])
+            ->andWhere(new \yii\db\Expression('LOWER(TRIM(name)) = :name', [':name' => mb_strtolower(trim($this->name))]));
+        if (!$this->isNewRecord) {
+            $query->andWhere(['<>', 'id', $this->id]);
+        }
+        $existing = $query->one();
+        if (!$existing) {
+            return;
+        }
 
-        $flags = [
+        $labels = [
             'is_purchase' => 'compra',
-            'is_kitchen' => 'cocina',
+            'is_kitchen' => 'uso',
             'is_subrecipe_yield' => 'rendimiento subreceta',
             'is_subrecipe_um' => 'unidad subreceta',
             'is_recipe_yield' => 'rendimiento receta',
             'is_recipe_final_um' => 'unidad final receta',
         ];
-
-        foreach ($flags as $flag => $label) {
-            if (!empty($this->$flag)) {
-                $query = self::find()->where([
-                    'business_id' => $businessId,
-                    $flag => 1,
-                ]);
-                if (!$this->isNewRecord) {
-                    $query->andWhere(['<>', 'id', $this->id]);
-                }
-                // Comparación insensible a mayúsculas
-                $query->andWhere(new \yii\db\Expression('LOWER(name) = :name', [':name' => $nameNormalized]));
-                if ($query->exists()) {
-                    $this->addError($attribute, "Ya existe una unidad llamada '{$this->name}' para el tipo ({$label}).");
-                    // No seguimos validando otros flags si ya hay conflicto con este
-                    return;
-                }
+        $roles = [];
+        foreach ($labels as $flag => $label) {
+            if (!empty($existing->$flag)) {
+                $roles[] = $label;
             }
         }
+        $types = $roles ? ' para el tipo (' . implode(', ', $roles) . ')' : '';
+        $this->addError($attribute, "Ya existe una unidad llamada '{$this->name}'{$types}. Edítala para cambiar sus usos.");
+    }
+
+    /**
+     * Impide desmarcar un uso de la unidad si hay insumos o recetas del negocio que la usan en ese rol.
+     */
+    public function validateFlagNotInUse($attribute)
+    {
+        if ($this->isNewRecord || !empty($this->$attribute) || !$this->getOldAttribute($attribute)) {
+            return;
+        }
+
+        $usages = $this->findUsages($attribute);
+        if (empty($usages)) {
+            return;
+        }
+
+        $this->addError(
+            $attribute,
+            "No se puede desmarcar: la unidad '{$this->name}' está en uso como " . self::describeUsage($usages) . '.'
+        );
+    }
+
+    /**
+     * Todos los usos de la unidad en insumos y recetas del negocio (uno por rol en el que esté en uso).
+     *
+     * @return array[] ver findUsages()
+     */
+    public function getAllUsages()
+    {
+        $result = [];
+        foreach (['is_purchase', 'is_kitchen', 'is_subrecipe_yield', 'is_subrecipe_um', 'is_recipe_yield', 'is_recipe_final_um'] as $flag) {
+            if ($usage = $this->findUsages($flag)) {
+                $result[] = $usage;
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Texto "rol en N entidades: a, b, c y X más".
+     */
+    public static function describeUsage(array $usage)
+    {
+        $names = array_slice($usage['items'], 0, 10);
+        $more = $usage['total'] - count($names);
+        $list = implode(', ', $names) . ($more > 0 ? " y {$more} más" : '');
+        return "{$usage['role']} en {$usage['total']} {$usage['entity']}: {$list}";
+    }
+
+    /**
+     * Busca los registros del negocio que usan esta unidad en el rol indicado por el flag.
+     * Las tablas guardan la unidad por nombre (no por id).
+     *
+     * @return array{role:string,entity:string,total:int,items:string[]}|null
+     */
+    protected function findUsages($flag)
+    {
+        $businessId = $this->business_id;
+        if (empty($businessId)) {
+            return null;
+        }
+
+        $name = $this->getOldAttribute('name');
+        $recipe = function ($column, $type) use ($businessId, $name) {
+            return StandardRecipe::find()
+                ->where(['business_id' => $businessId, 'type' => $type, $column => $name]);
+        };
+
+        switch ($flag) {
+            case 'is_purchase':
+                $query = IngredientStock::find()->where(['business_id' => $businessId, 'um' => $name]);
+                $role = 'unidad de compra'; $entity = 'insumos'; $col = 'ingredient';
+                break;
+            case 'is_kitchen':
+                $query = IngredientStock::find()->where(['business_id' => $businessId, 'portion_um' => $name]);
+                $role = 'unidad de uso'; $entity = 'insumos'; $col = 'ingredient';
+                break;
+            case 'is_subrecipe_yield':
+                $query = $recipe('yield_um', StandardRecipe::STANDARD_RECIPE_TYPE_SUB);
+                $role = 'rendimiento de subreceta'; $entity = 'subrecetas'; $col = 'title';
+                break;
+            case 'is_subrecipe_um':
+                $query = $recipe('um', StandardRecipe::STANDARD_RECIPE_TYPE_SUB);
+                $role = 'unidad de subreceta'; $entity = 'subrecetas'; $col = 'title';
+                break;
+            case 'is_recipe_yield':
+                $query = $recipe('yield_um', StandardRecipe::STANDARD_RECIPE_TYPE_MAIN);
+                $role = 'rendimiento de receta'; $entity = 'recetas'; $col = 'title';
+                break;
+            case 'is_recipe_final_um':
+                $query = $recipe('um', StandardRecipe::STANDARD_RECIPE_TYPE_MAIN);
+                $role = 'unidad final de receta'; $entity = 'recetas'; $col = 'title';
+                break;
+            default:
+                return null;
+        }
+
+        $total = (int)$query->count();
+        if ($total === 0) {
+            return null;
+        }
+
+        return [
+            'role' => $role,
+            'entity' => $entity,
+            'total' => $total,
+            'items' => $query->select($col)->orderBy($col)->limit(10)->column(),
+        ];
     }
 
     /**

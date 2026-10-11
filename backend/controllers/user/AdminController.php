@@ -375,8 +375,22 @@ class AdminController extends Controller
             $this->make(AjaxRequestModelValidator::class, [$form])->validate();
         }
 
-        if ($form->load($post) && $form->save()) {
+        $isSubmitted = $form->load($post);
+        if ($isSubmitted && $form->save()) {
+            Yii::$app->session->setFlash('success', 'Usuario creado exitosamente');
             return $this->redirect(['//user/admin/users']);
+        }
+
+        // Notificar al usuario cuando el envío falla (validación o error interno)
+        if ($isSubmitted && !array_key_exists('ajax', $post)) {
+            $firstError = $form->getFirstError();
+            $msg = 'No se pudo crear el usuario.';
+            if ($firstError) {
+                $msg .= ' ' . $firstError;
+            } else {
+                $msg .= ' Revisa los campos e inténtalo de nuevo.';
+            }
+            Yii::$app->session->setFlash('danger', $msg);
         }
 
         return $this->render('create_user', [

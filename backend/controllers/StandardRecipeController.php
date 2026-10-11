@@ -3870,13 +3870,13 @@ $recipesSheet->getColumnDimension($colFinalUM)->setWidth(20);
      for ($i = 2; $i <= 500; $i++) {         // Modificar las fórmulas para que muestren cadena vacía en lugar de cero    // Fórmula para la unidad de medida (E)
     // Para INSUMO usa la columna 3 de INSUMOS, para SUBRECETA usa la columna 3 de SUBRECETAS
     $ingredientsSheet->setCellValue("E$i", 
-        "=IF(B$i=\"INSUMO\",VLOOKUP(C$i,INSUMOS!A:D,3,FALSE),IF(B$i=\"SUBRECETA\",VLOOKUP(C$i,SUBRECETAS!A:D,3,FALSE),\"\"))"
+        "=IF(B$i=\"INSUMO\",IFERROR(VLOOKUP(C$i,INSUMOS!A:D,3,FALSE),\"\"),IF(B$i=\"SUBRECETA\",IFERROR(VLOOKUP(C$i,SUBRECETAS!A:D,3,FALSE),\"\"),\"\"))"
     );
 
     // Fórmula para el costo (F)
     // Para INSUMO usa la columna 4 de INSUMOS, para SUBRECETA usa la columna 4 de SUBRECETAS
     $ingredientsSheet->setCellValue("F$i",
-        "=IF(B$i=\"INSUMO\",IF(D$i*VLOOKUP(C$i,INSUMOS!A:D,4,FALSE)=\"\",\"\",D$i*VLOOKUP(C$i,INSUMOS!A:D,4,FALSE)),IF(B$i=\"SUBRECETA\",IF(D$i*VLOOKUP(C$i,SUBRECETAS!A:D,4,FALSE)=\"\",\"\",D$i*VLOOKUP(C$i,SUBRECETAS!A:D,4,FALSE)),\"\"))"
+        "=IF(B$i=\"INSUMO\",IF(D$i=\"\",\"\",IFERROR(D$i*VLOOKUP(C$i,INSUMOS!A:D,4,FALSE),\"\")),IF(B$i=\"SUBRECETA\",IF(D$i=\"\",\"\",IFERROR(D$i*VLOOKUP(C$i,SUBRECETAS!A:D,4,FALSE),\"\")),\"\"))"
     );
 
     // Dar formato de moneda a la columna de costo

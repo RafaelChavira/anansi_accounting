@@ -121,31 +121,19 @@ class UnitOfMeasurementController extends Controller
             $this->make(AjaxRequestModelValidator::class, [$model])->validate();
         }
         if ($model->load(Yii::$app->request->post())) {
-            // Validar duplicados por nombre y tipo
-            $exists = UnitOfMeasurement::find()
-                ->where([
-                    'name' => $model->name,
-                    'type' => $model->type,
-                    'business_id' => $model->business_id
-                ])
-                ->exists();
-            if ($exists) {
-                $model->addError('name', 'Ya existe una unidad de medida con ese nombre y tipo en este negocio.');
+            if ($model->save()) {
                 if (Yii::$app->request->isAjax) {
                     Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
-                    return [
-                        'success' => false,
-                        'error' => 'Ya existe una unidad de medida con ese nombre y tipo en este negocio.'
-                    ];
+                    return ['success' => true];
                 }
-            } else {
-                if ($model->save()) {
-                    if (Yii::$app->request->isAjax) {
-                        Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
-                        return ['success' => true];
-                    }
-                    return $this->redirect(['unit-of-measurement/index']);
-                }
+                return $this->redirect(['unit-of-measurement/index']);
+            }
+            if (Yii::$app->request->isAjax) {
+                Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+                return [
+                    'success' => false,
+                    'error' => implode(' ', $model->getFirstErrors()) ?: 'No se pudo guardar la unidad de medida.'
+                ];
             }
         }
 
@@ -187,7 +175,19 @@ class UnitOfMeasurementController extends Controller
      */
     public function actionDelete($id)
     {
-        $this->findModel($id)->delete();
+        $model = $this->findModel($id);
+
+        $usages = $model->getAllUsages();
+        if ($usages) {
+            $details = array_map([UnitOfMeasurement::class, 'describeUsage'], $usages);
+            Yii::$app->session->setFlash(
+                'danger',
+                "No se puede eliminar la unidad de medida \"{$model->name}\" porque está en uso: " . implode('; ', $details) . '.'
+            );
+            return $this->redirect(['index']);
+        }
+
+        $model->delete();
 
         return $this->redirect(['index']);
     }

@@ -279,7 +279,7 @@ $this->registerCss('
                                 $url,
                                 [
                                     'class' => 'text-danger',
-                                    'data-confirm' => '¿Está seguro de que desea eliminar esta unidad personalizada?',
+                                    'data-confirm' => '¿Está seguro de que desea eliminar la unidad de medida "' . $model->name . '"?',
                                     'data-method' => 'post',
                                 ]
                             );
