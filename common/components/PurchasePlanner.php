@@ -194,6 +194,130 @@ class PurchasePlanner
     }
 
     /**
+     * Minúsculas y sin acentos, para buscar sin que importen mayúsculas ni tildes ("cesar" encuentra "CÉSAR").
+     */
+    public static function fold($text)
+    {
+        return strtr(mb_strtolower(trim((string)$text), 'UTF-8'), [
+            'á' => 'a', 'à' => 'a', 'ä' => 'a', 'é' => 'e', 'è' => 'e', 'ë' => 'e',
+            'í' => 'i', 'ì' => 'i', 'ï' => 'i', 'ó' => 'o', 'ò' => 'o', 'ö' => 'o',
+            'ú' => 'u', 'ù' => 'u', 'ü' => 'u', 'ñ' => 'n',
+        ]);
+    }
+
+    /**
+     * Filtra renglones de la planeación por nombre de insumo. Cada palabra de la búsqueda debe
+     * aparecer en el nombre (en cualquier orden), sin importar mayúsculas ni acentos.
+     *
+     * @param array $rows Renglones de {@see plan()}.
+     * @param string $query
+     * @return array
+     */
+    public static function filterByName(array $rows, $query)
+    {
+        $words = array_values(array_filter(preg_split('/\s+/u', self::fold($query)), 'strlen'));
+        if (empty($words)) {
+            return $rows;
+        }
+        return array_values(array_filter($rows, function ($row) use ($words) {
+            $name = self::fold($row['nombre']);
+            foreach ($words as $w) {
+                if (strpos($name, $w) === false) {
+                    return false;
+                }
+            }
+            return true;
+        }));
+    }
+
+    /**
+     * Último proveedor con el que se trabajó cada insumo, tomando lo más reciente entre:
+     *  - las solicitudes de compra enviadas desde el sistema (purchase_request_item), y
+     *  - las entradas de inventario (movement.type = input), donde el proveedor es texto libre: se
+     *    liga al proveedor registrado por su nombre comercial o su nombre; si el nombre es ambiguo
+     *    (lo comparten varios proveedores) se ignora en lugar de adivinar.
+     *
+     * @param int $businessId
+     * @param int[] $ingredientIds
+     * @return array [ingredient_id => ['provider_id' => int, 'source' => 'solicitud'|'compra', 'at' => int]]
+     */
+    public static function lastUsedProviders($businessId, array $ingredientIds)
+    {
+        $businessId = (int)$businessId;
+        if (empty($ingredientIds)) {
+            return [];
+        }
+
+        $fromRequests = [];
+        $rows = (new Query())
+            ->select(['i.ingredient_stock_id', 'i.provider_id', 'r.created_at'])
+            ->from(['i' => 'purchase_request_item'])
+            ->innerJoin(['r' => 'purchase_request'], 'r.id = i.request_id')
+            ->where(['r.business_id' => $businessId, 'i.ingredient_stock_id' => $ingredientIds])
+            ->andWhere(['not', ['i.provider_id' => null]])
+            ->orderBy(['r.id' => SORT_ASC, 'i.id' => SORT_ASC])
+            ->all();
+        foreach ($rows as $r) {
+            // Orden ascendente: la última fila de cada insumo es la más reciente.
+            $fromRequests[(int)$r['ingredient_stock_id']] = [
+                'provider_id' => (int)$r['provider_id'], 'source' => 'solicitud', 'at' => (int)$r['created_at'],
+            ];
+        }
+
+        // Nombre de proveedor (texto libre de las entradas) -> id. Primero nombre comercial, luego nombre;
+        // solo si identifica a un único proveedor.
+        $byBusinessName = [];
+        $byName = [];
+        foreach ((new Query())->select(['id', 'name', 'business_name'])->from('provider')->where(['business_id' => $businessId])->all() as $p) {
+            if (trim((string)$p['business_name']) !== '') {
+                $byBusinessName[self::fold($p['business_name'])][] = (int)$p['id'];
+            }
+            if (trim((string)$p['name']) !== '') {
+                $byName[self::fold($p['name'])][] = (int)$p['id'];
+            }
+        }
+        $resolve = function ($label) use ($byBusinessName, $byName) {
+            $key = self::fold($label);
+            foreach ([$byBusinessName, $byName] as $map) {
+                if (isset($map[$key]) && count(array_unique($map[$key])) === 1) {
+                    return $map[$key][0];
+                }
+                if (isset($map[$key])) {
+                    return null; // ambiguo
+                }
+            }
+            return null;
+        };
+
+        $fromPurchases = [];
+        $moves = (new Query())
+            ->select(['ingredient_id', 'provider', 'created_at'])
+            ->from('movement')
+            ->where(['business_id' => $businessId, 'type' => 'input', 'ingredient_id' => $ingredientIds])
+            ->andWhere(['not', ['provider' => null]])
+            ->andWhere(['<>', 'provider', ''])
+            ->orderBy(['id' => SORT_ASC])
+            ->all();
+        foreach ($moves as $m) {
+            $pid = $resolve($m['provider']);
+            if ($pid === null) {
+                continue;
+            }
+            $fromPurchases[(int)$m['ingredient_id']] = [
+                'provider_id' => $pid, 'source' => 'compra', 'at' => (int)strtotime((string)$m['created_at']),
+            ];
+        }
+
+        $out = $fromRequests;
+        foreach ($fromPurchases as $ingredientId => $purchase) {
+            if (!isset($out[$ingredientId]) || $purchase['at'] > $out[$ingredientId]['at']) {
+                $out[$ingredientId] = $purchase;
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Proveedores asignados a cada insumo (ingredient_provider), solo del negocio indicado.
      *
      * @param int $businessId

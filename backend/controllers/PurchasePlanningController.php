@@ -52,11 +52,13 @@ class PurchasePlanningController extends Controller
      *
      * @param string|null $week Cualquier fecha Y-m-d; se normaliza a su lunes.
      * @param int $only_missing 1 = solo insumos con faltante.
+     * @param string $q Búsqueda por nombre de insumo (sin importar mayúsculas ni acentos).
      */
-    public function actionIndex($week = null, $only_missing = 1)
+    public function actionIndex($week = null, $only_missing = 1, $q = '')
     {
         $business = RedisKeys::getBusiness();
         $businessId = (int)$business->id;
+        $q = mb_substr(trim((string)$q), 0, 100);
 
         $weekStart = PurchaseWeekLevel::normalizeWeek($week ?: date('Y-m-d', strtotime('+7 days')));
 
@@ -96,6 +98,14 @@ class PurchasePlanningController extends Controller
             $costoTotal += (float)$r['compra']['costo'];
         }
 
+        // Búsqueda: solo afecta a la tabla; las tarjetas de arriba siguen siendo las de toda la semana.
+        if ($q !== '') {
+            $rows = PurchasePlanner::filterByName($rows, $q);
+        }
+        $totalSolicitablesBusqueda = count(array_filter($rows, function ($r) {
+            return $r['faltante'] > 0 && $r['compra'] !== null;
+        }));
+
         // Paginado: los totales de arriba ya se calcularon sobre TODAS las filas; aquí solo se corta lo que se muestra.
         // Pagination conserva en los enlaces el resto de parámetros (week, only_missing, per-page).
         $pagination = new Pagination([
@@ -121,6 +131,8 @@ class PurchasePlanningController extends Controller
             'onlyMissing' => (int)$only_missing === 1,
             'totalConFaltante' => $totalConFaltante,
             'totalSolicitables' => $totalSolicitables,
+            'q' => $q,
+            'totalSolicitablesBusqueda' => $totalSolicitablesBusqueda,
             'totalConfigurados' => $plan['totalStocks'] - $sinStockIdeal,
             'sinStockIdeal' => $sinStockIdeal,
             'costoTotal' => $costoTotal,

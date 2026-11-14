@@ -47,6 +47,7 @@ $pagerHtml = $pagination->pageCount > 1 ? LinkPager::widget([
 $shownFrom = $totalRows > 0 ? $pagination->offset + 1 : 0;
 $shownTo = min($pagination->offset + $pagination->limit, $totalRows);
 $perPage = (int)$pagination->getPageSize();
+$qParam = $q !== '' ? $q : null; // para conservar la búsqueda en los enlaces
 ?>
 <div class="purchase-planning-index">
     <div class="card">
@@ -55,13 +56,13 @@ $perPage = (int)$pagination->getPageSize();
                 <i class="fas fa-shopping-basket"></i> <?= Html::encode($this->title) ?>
             </h3>
             <div class="btn-group">
-                <a class="btn btn-outline-secondary btn-sm" href="<?= Url::to(['index', 'week' => $prevWeek, 'only_missing' => (int)$onlyMissing]) ?>">
+                <a class="btn btn-outline-secondary btn-sm" href="<?= Url::to(['index', 'week' => $prevWeek, 'only_missing' => (int)$onlyMissing, 'q' => $qParam]) ?>">
                     <i class="fas fa-chevron-left"></i> Semana anterior
                 </a>
-                <a class="btn btn-outline-secondary btn-sm" href="<?= Url::to(['index', 'only_missing' => (int)$onlyMissing]) ?>">
+                <a class="btn btn-outline-secondary btn-sm" href="<?= Url::to(['index', 'only_missing' => (int)$onlyMissing, 'q' => $qParam]) ?>">
                     Semana que viene
                 </a>
-                <a class="btn btn-outline-secondary btn-sm" href="<?= Url::to(['index', 'week' => $nextWeek, 'only_missing' => (int)$onlyMissing]) ?>">
+                <a class="btn btn-outline-secondary btn-sm" href="<?= Url::to(['index', 'week' => $nextWeek, 'only_missing' => (int)$onlyMissing, 'q' => $qParam]) ?>">
                     Semana siguiente <i class="fas fa-chevron-right"></i>
                 </a>
             </div>
@@ -144,17 +145,42 @@ $perPage = (int)$pagination->getPageSize();
                 <?php endforeach; ?>
             </div>
 
-            <div class="mb-2">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                <?= Html::beginForm(['index'], 'get', ['class' => 'flex-grow-1', 'style' => 'max-width: 520px;']) ?>
+                <?= Html::hiddenInput('week', $weekStart) ?>
+                <?= Html::hiddenInput('only_missing', (int)$onlyMissing) ?>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text"><i class="bx bx-search"></i></span>
+                    <?= Html::textInput('q', $q, [
+                        'class' => 'form-control',
+                        'placeholder' => 'Buscar insumo…',
+                        'maxlength' => 100,
+                        'autocomplete' => 'off',
+                        'id' => 'plan-search',
+                    ]) ?>
+                    <button class="btn btn-primary" type="submit">Buscar</button>
+                    <?php if ($q !== ''): ?>
+                        <a class="btn btn-outline-secondary" href="<?= Url::to(['index', 'week' => $weekStart, 'only_missing' => (int)$onlyMissing]) ?>">Limpiar</a>
+                    <?php endif; ?>
+                </div>
+                <?= Html::endForm() ?>
+
                 <?php if ($onlyMissing): ?>
-                    <a class="btn btn-sm btn-outline-primary" href="<?= Url::to(['index', 'week' => $weekStart, 'only_missing' => 0]) ?>">
+                    <a class="btn btn-sm btn-outline-primary" href="<?= Url::to(['index', 'week' => $weekStart, 'only_missing' => 0, 'q' => $qParam]) ?>">
                         Ver todos los insumos
                     </a>
                 <?php else: ?>
-                    <a class="btn btn-sm btn-outline-primary" href="<?= Url::to(['index', 'week' => $weekStart, 'only_missing' => 1]) ?>">
+                    <a class="btn btn-sm btn-outline-primary" href="<?= Url::to(['index', 'week' => $weekStart, 'only_missing' => 1, 'q' => $qParam]) ?>">
                         Ver solo los que hay que comprar
                     </a>
                 <?php endif; ?>
             </div>
+            <?php if ($q !== ''): ?>
+                <div class="text-muted small mb-2">
+                    Búsqueda: «<strong><?= Html::encode($q) ?></strong>» &middot; <?= (int)$totalRows ?> insumo(s) encontrado(s).
+                    Las tarjetas de arriba son de toda la semana.
+                </div>
+            <?php endif; ?>
 
             <?php if ($totalRows > 0): ?>
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
@@ -176,11 +202,16 @@ $perPage = (int)$pagination->getPageSize();
 
             <?= Html::beginForm(['/purchase-request/review'], 'post', ['id' => 'plan-form']) ?>
             <?= Html::hiddenInput('week', $weekStart) ?>
+            <?= $q !== '' ? Html::hiddenInput('q', $q) : '' ?>
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                 <button type="submit" name="mode" value="selected" id="btn-selected" class="btn btn-primary btn-sm" disabled>
                     <i class="fas fa-paper-plane"></i> Preparar solicitud con los seleccionados (<span id="sel-count">0</span>)
                 </button>
-                <?php if ($totalSolicitables > 0): ?>
+                <?php if ($q !== '' && $totalSolicitablesBusqueda > 0): ?>
+                    <button type="submit" name="mode" value="all" class="btn btn-outline-primary btn-sm">
+                        Preparar solicitud con los insumos de la búsqueda (<?= (int)$totalSolicitablesBusqueda ?>)
+                    </button>
+                <?php elseif ($q === '' && $totalSolicitables > 0): ?>
                     <button type="submit" name="mode" value="all" class="btn btn-outline-primary btn-sm">
                         Preparar solicitud con todos los insumos por comprar (<?= (int)$totalSolicitables ?>)
                     </button>
@@ -211,9 +242,13 @@ $perPage = (int)$pagination->getPageSize();
                     <?php if (empty($rows)): ?>
                         <tr>
                             <td colspan="9" class="text-center text-muted py-4">
-                                <?= $onlyMissing
-                                    ? 'No hay insumos por comprar para esta semana con el nivel y los stocks actuales.'
-                                    : 'No hay insumos con stock máximo configurado.' ?>
+                                <?php if ($q !== ''): ?>
+                                    Ningún insumo coincide con «<?= Html::encode($q) ?>»<?= $onlyMissing ? ' entre los que hay que comprar. Prueba con «Ver todos los insumos».' : '.' ?>
+                                <?php else: ?>
+                                    <?= $onlyMissing
+                                        ? 'No hay insumos por comprar para esta semana con el nivel y los stocks actuales.'
+                                        : 'No hay insumos con stock máximo configurado.' ?>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endif; ?>

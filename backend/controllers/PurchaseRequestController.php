@@ -101,11 +101,14 @@ class PurchaseRequestController extends Controller
         $week = PurchaseWeekLevel::normalizeWeek($post['week'] ?? null);
         $mode = (($post['mode'] ?? 'selected') === 'all') ? 'all' : 'selected';
         $ids = array_map('intval', (array)($post['ingredient_ids'] ?? []));
+        // "Todos" respeta la búsqueda activa en la planeación: pide solo los insumos que coinciden.
+        $q = mb_substr(trim((string)($post['q'] ?? '')), 0, 100);
 
         $plan = PurchasePlanner::plan($businessId, $week);
+        $candidates = ($mode === 'all' && $q !== '') ? PurchasePlanner::filterByName($plan['rows'], $q) : $plan['rows'];
         $rows = [];
         $sinConversion = 0;
-        foreach ($plan['rows'] as $row) {
+        foreach ($candidates as $row) {
             if ($row['faltante'] <= 0) {
                 continue;
             }
@@ -301,6 +304,7 @@ class PurchaseRequestController extends Controller
             return (int)$r['id'];
         }, $rows);
         $candidates = PurchasePlanner::providersByIngredient($businessId, $ids);
+        $lastUsedByIngredient = PurchasePlanner::lastUsedProviders($businessId, $ids);
         $allProviders = [];
         foreach (Provider::find()->where(['business_id' => $businessId])->orderBy('business_name ASC, name ASC')->all() as $p) {
             $allProviders[$p->id] = $p->business_name ?: $p->name;
@@ -319,17 +323,29 @@ class PurchaseRequestController extends Controller
             if (!$assigned) {
                 $opts = $allProviders;
             }
+            // Proveedor por defecto: el último con el que se trabajó este insumo (solicitud o compra);
+            // si no hay historial, el de la presentación del catálogo; y si tampoco, el primero asignado.
+            $lastUsed = $lastUsedByIngredient[$id] ?? null;
             $default = null;
-            if ($catalogProvider && isset($opts[$catalogProvider])) {
-                $default = $catalogProvider;
-            } elseif ($assigned) {
-                $default = (int)array_key_first($opts);
+            if ($lastUsed !== null && isset($allProviders[$lastUsed['provider_id']])) {
+                if (!isset($opts[$lastUsed['provider_id']])) {
+                    $opts = [$lastUsed['provider_id'] => $allProviders[$lastUsed['provider_id']]] + $opts;
+                }
+                $default = $lastUsed['provider_id'];
+            } else {
+                $lastUsed = null;
+                if ($catalogProvider && isset($opts[$catalogProvider])) {
+                    $default = $catalogProvider;
+                } elseif ($assigned) {
+                    $default = (int)array_key_first($opts);
+                }
             }
             $p = $posted[$id] ?? null;
             $items[] = [
                 'row' => $row,
                 'options' => $opts,
                 'assigned' => $assigned,
+                'last_used' => $lastUsed,
                 'include' => $p === null ? true : !empty($p['include']),
                 'provider_id' => $p !== null && isset($p['provider_id']) && $p['provider_id'] !== '' ? (int)$p['provider_id'] : $default,
                 'quantity' => $p !== null && isset($p['quantity']) ? (string)$p['quantity'] : (string)$row['compra']['cantidad'],

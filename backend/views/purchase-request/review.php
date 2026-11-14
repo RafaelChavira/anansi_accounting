@@ -101,6 +101,13 @@ $qty = function ($n) {
                                 <?php if (!$it['assigned']): ?>
                                     <small class="text-warning">Sin proveedor asignado al insumo</small>
                                 <?php endif; ?>
+                                <?php if ($it['last_used'] !== null && (int)$it['provider_id'] === (int)$it['last_used']['provider_id']): ?>
+                                    <br><small class="text-muted">
+                                        <i class="fas fa-history"></i> Último proveedor usado
+                                        (<?= $it['last_used']['source'] === 'solicitud' ? 'solicitud' : 'compra' ?>
+                                        del <?= Yii::$app->formatter->asDate($it['last_used']['at'], 'php:d/m/Y') ?>)
+                                    </small>
+                                <?php endif; ?>
                             </td>
                             <td class="text-end row-total" data-has-price="<?= $unitPrice !== null ? 1 : 0 ?>">
                                 <?= $unitPrice !== null ? '$' . number_format((float)$it['quantity'] * (float)$unitPrice, 2, ',', '.') : '—' ?>
