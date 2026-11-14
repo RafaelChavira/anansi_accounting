@@ -52,7 +52,7 @@ if ($currentControllerId == 'standard-recipe') {
 
 // Verificar si algún elemento dentro de cada menú está activo
 $configBaseActive = in_array($currentControllerId, ['category', 'recipe-category', 'unit-of-measurement', 'business', 'consumption-center']) || ($currentControllerId == 'business' && $action == 'requisition-rules');
-$gestionInsumosActive = in_array($currentControllerId, ['ingredient-stock', 'provider', 'ingredients']);
+$gestionInsumosActive = in_array($currentControllerId, ['ingredient-stock', 'provider', 'ingredients', 'purchase-catalog']);
 $costeoActive = in_array($currentControllerId, ['sub-standard-recipe', 'standard-recipe', 'convoy', 'menu']);
 $almacenMovimientosActive = in_array($currentControllerId, ['storage', 'movement', 'price-trend']);
 // Active flag for Centros de consumo inside Configuración Base (also mark active when on requisition rules action)
@@ -183,6 +183,13 @@ $administracionConfiguracionActive = in_array($currentControllerId, ['users', 'b
                             <li class="menu-item <?= $currentControllerId == 'ingredients' ? 'active' : '' ?>">
                                 <a href="<?= \yii\helpers\Url::to(['/provider/ingredients']) ?>" class="menu-link">
                                     <div><?= Yii::t('app', 'Insumos por Proveedores') ?></div>
+                                </a>
+                            </li>
+                        <?php endif; ?>
+                        <?php if ($isAdmin || Yii::$app->user->can('ingredients_list')): ?>
+                            <li class="menu-item <?= $currentControllerId == 'purchase-catalog' ? 'active' : '' ?>">
+                                <a href="<?= \yii\helpers\Url::to(['/purchase-catalog/index']) ?>" class="menu-link">
+                                    <div><?= Yii::t('app', 'Catálogo de compras') ?></div>
                                 </a>
                             </li>
                         <?php endif; ?>

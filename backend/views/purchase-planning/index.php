@@ -60,7 +60,9 @@ $fmtQty = function ($n) {
                 <br>
                 <small>
                     Stock ideal = stock máximo del insumo &times; factor del nivel.
-                    A comprar = stock ideal &minus; existencia actual.
+                    Falta = stock ideal &minus; existencia actual. Existencia y stocks se expresan en la
+                    <strong>unidad de uso</strong> del insumo; la columna "Comprar" lo convierte a la presentación
+                    de compra (se redondea hacia arriba).
                 </small>
             </div>
 
@@ -83,6 +85,26 @@ $fmtQty = function ($n) {
                         </div>
                     </div>
                 </div>
+                <div class="col-md-4">
+                    <div class="info-box">
+                        <span class="info-box-icon bg-success"><i class="fas fa-dollar-sign"></i></span>
+                        <div class="info-box-content">
+                            <span class="info-box-text">Costo estimado de la compra</span>
+                            <span class="info-box-number">$<?= number_format((float)$costoTotal, 2, ',', '.') ?></span>
+                            <small>solo insumos cuya presentación tiene precio</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="info-box">
+                        <span class="info-box-icon bg-warning"><i class="fas fa-box-open"></i></span>
+                        <div class="info-box-content">
+                            <span class="info-box-text">Sin presentación de compra</span>
+                            <span class="info-box-number"><?= (int)$sinPresentacion ?></span>
+                            <small>agrégalas en el <a href="<?= Url::to(['/purchase-catalog/index']) ?>">catálogo de compras</a></small>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="mb-2">
@@ -102,17 +124,19 @@ $fmtQty = function ($n) {
                     <thead>
                     <tr>
                         <th>Insumo</th>
-                        <th>Unidad</th>
+                        <th>Unidad de uso</th>
                         <th class="text-end">Existencia actual</th>
                         <th class="text-end">Stock máximo (base)</th>
                         <th class="text-end">Stock ideal de la semana</th>
-                        <th class="text-end">A comprar</th>
+                        <th class="text-end">Falta</th>
+                        <th>Comprar</th>
+                        <th class="text-end">Costo est.</th>
                     </tr>
                     </thead>
                     <tbody>
                     <?php if (empty($rows)): ?>
                         <tr>
-                            <td colspan="6" class="text-center text-muted py-4">
+                            <td colspan="8" class="text-center text-muted py-4">
                                 <?= $onlyMissing
                                     ? 'No hay insumos por comprar para esta semana con el nivel y los stocks actuales.'
                                     : 'No hay insumos con stock máximo configurado.' ?>
@@ -131,6 +155,35 @@ $fmtQty = function ($n) {
                                     <strong class="text-danger"><?= $fmtQty($r['faltante']) ?></strong>
                                 <?php else: ?>
                                     <span class="text-success">Cubierto</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php $c = $r['compra']; ?>
+                                <?php if ($r['faltante'] <= 0): ?>
+                                    <span class="text-muted">—</span>
+                                <?php elseif ($c === null): ?>
+                                    <a class="btn btn-sm btn-outline-warning"
+                                       href="<?= Url::to(['/purchase-catalog/create', 'ingredient_stock_id' => $r['id']]) ?>">
+                                        <i class="fas fa-plus"></i> Definir presentación
+                                    </a>
+                                <?php else: ?>
+                                    <strong><?= (int)$c['cantidad'] ?> &times; <?= Html::encode($c['nombre']) ?></strong>
+                                    <small class="text-muted">
+                                        (<?= rtrim(rtrim(number_format($c['contenido'], 4, ',', '.'), '0'), ',') ?> <?= Html::encode($r['unidad']) ?> c/u)
+                                    </small>
+                                    <?php if ($c['proveedor']): ?>
+                                        <br><small class="text-muted"><i class="fas fa-truck"></i> <?= Html::encode($c['proveedor']) ?></small>
+                                    <?php endif; ?>
+                                    <?php if ($c['origen'] === 'insumo'): ?>
+                                        <br><small class="text-muted">según la unidad de compra del insumo</small>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                            </td>
+                            <td class="text-end">
+                                <?php if ($r['compra'] !== null && $r['compra']['tiene_precio']): ?>
+                                    $<?= number_format((float)$r['compra']['costo'], 2, ',', '.') ?>
+                                <?php else: ?>
+                                    <span class="text-muted">—</span>
                                 <?php endif; ?>
                             </td>
                         </tr>

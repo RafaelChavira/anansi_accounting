@@ -5,6 +5,7 @@ namespace backend\controllers;
 use backend\helpers\RedisKeys;
 use common\models\IngredientStock;
 use common\models\PurchasePlanningConfig;
+use common\models\PurchasePresentation;
 use common\models\PurchaseWeekLevel;
 use Yii;
 use yii\filters\AccessControl;
@@ -68,6 +69,14 @@ class PurchasePlanningController extends Controller
             ->orderBy('ingredient ASC')
             ->all();
 
+        // Catálogo de compras: mejor presentación activa de cada insumo.
+        $catalog = PurchasePresentation::bestForIngredients(
+            $businessId,
+            array_map(function ($s) {
+                return (int)$s->id;
+            }, $stocks)
+        );
+
         foreach ($stocks as $stock) {
             $base = (float)$stock->max_stock;
             if ($base <= 0) {
@@ -75,19 +84,27 @@ class PurchasePlanningController extends Controller
                 $sinStockIdeal++;
                 continue;
             }
+            // La existencia y los stocks mínimo/máximo se llevan en UNIDAD DE USO
+            // (las entradas suman cantidad × portions_per_unit; las salidas restan en unidad de uso).
             $actual = (float)$stock->quantity;
             $ideal = $base * $factor;
             $faltante = max(0.0, $ideal - $actual);
 
-            $rows[] = [
+            $row = [
                 'id' => $stock->id,
                 'nombre' => $stock->ingredient,
-                'unidad' => $stock->um,
+                'unidad' => $stock->portion_um ?: $stock->um,
                 'actual' => $actual,
                 'base' => $base,
                 'ideal' => $ideal,
                 'faltante' => $faltante,
+                'compra' => null,
             ];
+
+            if ($faltante > 0) {
+                $row['compra'] = $this->purchaseFor($stock, $faltante, $catalog[$stock->id] ?? null);
+            }
+            $rows[] = $row;
         }
 
         $totalConFaltante = count(array_filter($rows, function ($r) {
@@ -103,6 +120,18 @@ class PurchasePlanningController extends Controller
         usort($rows, function ($a, $b) {
             return $b['faltante'] <=> $a['faltante'];
         });
+
+        $costoTotal = 0.0;
+        $sinPresentacion = 0;
+        foreach ($rows as $r) {
+            if ($r['compra'] === null) {
+                if ($r['faltante'] > 0) {
+                    $sinPresentacion++;
+                }
+                continue;
+            }
+            $costoTotal += (float)$r['compra']['costo'];
+        }
 
         $weekDate = new \DateTime($weekStart);
         $prev = (clone $weekDate)->modify('-7 days')->format('Y-m-d');
@@ -120,7 +149,53 @@ class PurchasePlanningController extends Controller
             'totalConFaltante' => $totalConFaltante,
             'totalConfigurados' => count($stocks) - $sinStockIdeal,
             'sinStockIdeal' => $sinStockIdeal,
+            'costoTotal' => $costoTotal,
+            'sinPresentacion' => $sinPresentacion,
         ]);
+    }
+
+    /**
+     * Cuánto comprar de un insumo: convierte el faltante (en unidad de uso) a número de
+     * presentaciones. Usa la presentación del catálogo de compras; si el insumo no tiene,
+     * usa su propia unidad de compra (um) con su equivalencia (portions_per_unit).
+     *
+     * @param IngredientStock $stock
+     * @param float $faltante En unidad de uso.
+     * @param PurchasePresentation|null $presentation
+     * @return array|null null si no hay forma de convertir (sin catálogo ni equivalencia).
+     */
+    private function purchaseFor(IngredientStock $stock, $faltante, $presentation)
+    {
+        if ($presentation !== null) {
+            $per = (float)$presentation->units_per_presentation;
+            $n = PurchasePresentation::packagesFor($faltante, $per, (float)$presentation->min_order);
+            $provider = $presentation->provider;
+            return [
+                'origen' => 'catalogo',
+                'presentacion_id' => $presentation->id,
+                'nombre' => $presentation->name,
+                'proveedor' => $provider ? ($provider->business_name ?: $provider->name) : null,
+                'contenido' => $per,
+                'cantidad' => $n,
+                'costo' => $presentation->price !== null ? $n * (float)$presentation->price : 0.0,
+                'tiene_precio' => $presentation->price !== null,
+            ];
+        }
+
+        $per = (float)$stock->portions_per_unit;
+        if ($per > 0 && $stock->um) {
+            return [
+                'origen' => 'insumo',
+                'presentacion_id' => null,
+                'nombre' => $stock->um,
+                'proveedor' => null,
+                'contenido' => $per,
+                'cantidad' => PurchasePresentation::packagesFor($faltante, $per, 1),
+                'costo' => 0.0,
+                'tiene_precio' => false,
+            ];
+        }
+        return null;
     }
 
     /**
