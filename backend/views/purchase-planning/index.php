@@ -174,10 +174,29 @@ $perPage = (int)$pagination->getPageSize();
                 </div>
             <?php endif; ?>
 
+            <?= Html::beginForm(['/purchase-request/review'], 'post', ['id' => 'plan-form']) ?>
+            <?= Html::hiddenInput('week', $weekStart) ?>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <button type="submit" name="mode" value="selected" id="btn-selected" class="btn btn-primary btn-sm" disabled>
+                    <i class="fas fa-paper-plane"></i> Preparar solicitud con los seleccionados (<span id="sel-count">0</span>)
+                </button>
+                <?php if ($totalSolicitables > 0): ?>
+                    <button type="submit" name="mode" value="all" class="btn btn-outline-primary btn-sm">
+                        Preparar solicitud con todos los insumos por comprar (<?= (int)$totalSolicitables ?>)
+                    </button>
+                <?php endif; ?>
+                <a class="btn btn-link btn-sm ms-auto" href="<?= Url::to(['/purchase-request/index']) ?>">
+                    <i class="fas fa-history"></i> Ver solicitudes enviadas
+                </a>
+            </div>
+
             <div class="table-responsive">
                 <table class="table table-striped table-hover align-middle">
                     <thead>
                     <tr>
+                        <th style="width:40px">
+                            <input type="checkbox" id="select-page" class="form-check-input" title="Seleccionar los de esta página">
+                        </th>
                         <th>Insumo</th>
                         <th>Unidad de uso</th>
                         <th class="text-end">Existencia actual</th>
@@ -191,7 +210,7 @@ $perPage = (int)$pagination->getPageSize();
                     <tbody>
                     <?php if (empty($rows)): ?>
                         <tr>
-                            <td colspan="8" class="text-center text-muted py-4">
+                            <td colspan="9" class="text-center text-muted py-4">
                                 <?= $onlyMissing
                                     ? 'No hay insumos por comprar para esta semana con el nivel y los stocks actuales.'
                                     : 'No hay insumos con stock máximo configurado.' ?>
@@ -200,6 +219,11 @@ $perPage = (int)$pagination->getPageSize();
                     <?php endif; ?>
                     <?php foreach ($rows as $r): ?>
                         <tr>
+                            <td>
+                                <?php if ($r['faltante'] > 0 && $r['compra'] !== null): ?>
+                                    <input type="checkbox" name="ingredient_ids[]" value="<?= (int)$r['id'] ?>" class="form-check-input row-pick">
+                                <?php endif; ?>
+                            </td>
                             <td><?= Html::encode($r['nombre']) ?></td>
                             <td><?= Html::encode($r['unidad']) ?></td>
                             <td class="text-end"><?= $fmtQty($r['actual']) ?></td>
@@ -255,6 +279,7 @@ $perPage = (int)$pagination->getPageSize();
                     </tbody>
                 </table>
             </div>
+            <?= Html::endForm() ?>
 
             <?php if ($pagerHtml): ?>
                 <nav class="mt-3" aria-label="Paginado de insumos"><?= $pagerHtml ?></nav>
@@ -262,3 +287,28 @@ $perPage = (int)$pagination->getPageSize();
         </div>
     </div>
 </div>
+<?php
+// Casillas: contador de seleccionados y "seleccionar los de esta página".
+$this->registerJs(<<<'JS'
+(function () {
+    var picks = document.querySelectorAll('.row-pick');
+    var btn = document.getElementById('btn-selected');
+    var counter = document.getElementById('sel-count');
+    var all = document.getElementById('select-page');
+    function refresh() {
+        var n = 0;
+        picks.forEach(function (c) { if (c.checked) n++; });
+        if (counter) counter.textContent = n;
+        if (btn) btn.disabled = n === 0;
+        if (all) { all.checked = n > 0 && n === picks.length; all.indeterminate = n > 0 && n < picks.length; }
+    }
+    picks.forEach(function (c) { c.addEventListener('change', refresh); });
+    if (all) all.addEventListener('change', function () {
+        picks.forEach(function (c) { c.checked = all.checked; });
+        refresh();
+    });
+    refresh();
+})();
+JS
+);
+?>

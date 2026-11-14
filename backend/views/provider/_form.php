@@ -65,7 +65,15 @@ use kartik\select2\Select2;
                         ->textInput(['maxlength' => true, 'placeholder' => '+52 55 1234 5678'])
                         ->label(Yii::t('app', 'Teléfono del Contacto')) ?>
                 </div>
-                
+
+                <!-- WhatsApp para solicitudes de compra -->
+                <div class="col-md-6 mb-3">
+                    <?= $form->field($model, 'whatsapp')
+                        ->textInput(['maxlength' => true, 'placeholder' => '+52 55 1234 5678'])
+                        ->label('WhatsApp (para solicitudes de compra)')
+                        ->hint('Con código de país. Si lo dejas vacío se usa el teléfono del contacto o, si tampoco hay, el del negocio.') ?>
+                </div>
+
                 <!-- Dirección usando todo el ancho -->
                 <div class="col-12 mb-3">
                     <?= $form->field($model, 'address')
@@ -150,7 +158,7 @@ use kartik\select2\Select2;
 </div>
 <script>
 // Validación para campos de teléfono
-document.querySelectorAll('#provider-phone, #provider-second_phone').forEach(function(input) {
+document.querySelectorAll('#provider-phone, #provider-second_phone, #provider-whatsapp').forEach(function(input) {
     input.addEventListener('input', function() {
         // Permitir solo números, espacios, guiones y signo +
         this.value = this.value.replace(/[^0-9\s\-+]/g, '');

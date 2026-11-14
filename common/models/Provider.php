@@ -12,6 +12,7 @@ use Yii;
  * @property string|null $address
  * @property string|null $phone
  * @property string|null $second_phone
+ * @property string|null $whatsapp Número de WhatsApp para solicitudes de compra
  * @property string|null $email
  * @property int $business_id
  * @property string|null $payment_method
@@ -47,6 +48,9 @@ class Provider extends \yii\db\ActiveRecord
             ['payment_method', 'each', 'rule' => ['string']],
             ['payment_method', 'required', 'message' => 'Debe seleccionar al menos un método de pago'],
             [['name', 'address', 'phone', 'second_phone', 'email', 'account', 'credit_days', 'rfc', 'business_name', 'advantages', 'disadvantages', 'observations'], 'string', 'max' => 255],
+            [['whatsapp'], 'string', 'max' => 50],
+            [['whatsapp'], 'match', 'pattern' => '/^[0-9\s\-+()]*$/', 'message' => 'El WhatsApp solo puede llevar números, espacios, guiones, paréntesis y +.'],
+            [['whatsapp'], 'default', 'value' => null],
             [['business_id'], 'exist', 'skipOnError' => true, 'targetClass' => Business::className(), 'targetAttribute' => ['business_id' => 'id']],
         ];
     }
@@ -61,6 +65,7 @@ class Provider extends \yii\db\ActiveRecord
             'address' => Yii::t('app', 'Address'),
             'phone' => Yii::t('app', 'Phone'),
             'second_phone' => Yii::t('app', 'Second Phone'),
+            'whatsapp' => 'WhatsApp',
             'email' => Yii::t('app', 'Email'),
             'business_id' => Yii::t('app', 'Business ID'),
             'payment_method' => Yii::t('app', 'Payment Method'),
