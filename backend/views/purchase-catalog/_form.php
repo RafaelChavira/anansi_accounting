@@ -90,7 +90,7 @@ JS
         </div>
         <div class="card-footer">
             <?= Html::submitButton('Guardar', ['class' => 'btn btn-primary']) ?>
-            <?= Html::a('Cancelar', ['index'], ['class' => 'btn btn-outline-secondary']) ?>
+            <?= Html::a('Cancelar', ['presentations'], ['class' => 'btn btn-outline-secondary']) ?>
         </div>
     </div>
 

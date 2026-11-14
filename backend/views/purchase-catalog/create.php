@@ -10,6 +10,7 @@ use yii\helpers\Html;
 
 $this->title = 'Nueva presentación de compra';
 $this->params['breadcrumbs'][] = ['label' => 'Catálogo de compras', 'url' => ['index']];
+$this->params['breadcrumbs'][] = ['label' => 'Presentaciones adicionales', 'url' => ['presentations']];
 $this->params['breadcrumbs'][] = $this->title;
 ?>
 <div class="purchase-catalog-create">
