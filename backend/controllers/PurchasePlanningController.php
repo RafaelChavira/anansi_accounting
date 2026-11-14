@@ -8,6 +8,7 @@ use common\models\PurchasePlanningConfig;
 use common\models\PurchasePresentation;
 use common\models\PurchaseWeekLevel;
 use Yii;
+use yii\data\Pagination;
 use yii\db\Query;
 use yii\filters\AccessControl;
 use yii\filters\VerbFilter;
@@ -140,6 +141,16 @@ class PurchasePlanningController extends Controller
             $costoTotal += (float)$r['compra']['costo'];
         }
 
+        // Paginado: los totales de arriba ya se calcularon sobre TODAS las filas; aquí solo se corta lo que se muestra.
+        // Pagination conserva en los enlaces el resto de parámetros (week, only_missing, per-page).
+        $pagination = new Pagination([
+            'totalCount' => count($rows),
+            'defaultPageSize' => 25,
+            'pageSizeLimit' => [10, 100],
+        ]);
+        $totalRows = count($rows);
+        $rows = array_slice($rows, $pagination->offset, $pagination->limit);
+
         $weekDate = new \DateTime($weekStart);
         $prev = (clone $weekDate)->modify('-7 days')->format('Y-m-d');
         $next = (clone $weekDate)->modify('+7 days')->format('Y-m-d');
@@ -158,6 +169,8 @@ class PurchasePlanningController extends Controller
             'sinStockIdeal' => $sinStockIdeal,
             'costoTotal' => $costoTotal,
             'sinPresentacion' => $sinPresentacion,
+            'pagination' => $pagination,
+            'totalRows' => $totalRows,
         ]);
     }
 

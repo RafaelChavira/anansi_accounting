@@ -3,8 +3,11 @@
 use common\models\PurchasePlanningConfig;
 use yii\helpers\Html;
 use yii\helpers\Url;
+use yii\widgets\LinkPager;
 
 /* @var $this yii\web\View */
+/* @var $pagination yii\data\Pagination */
+/* @var $totalRows int */
 /* @var $rows array */
 /* @var $weekStart string */
 /* @var $weekEnd string */
@@ -27,6 +30,23 @@ $fmtDate = function ($ymd) {
 $fmtQty = function ($n) {
     return number_format((float)$n, 2, ',', '.');
 };
+
+// Paginado (se imprime arriba y abajo de la tabla).
+$pagerHtml = $pagination->pageCount > 1 ? LinkPager::widget([
+    'pagination' => $pagination,
+    'options' => ['class' => 'pagination pagination-sm m-0 flex-wrap'],
+    'linkContainerOptions' => ['class' => 'page-item'],
+    'linkOptions' => ['class' => 'page-link'],
+    'disabledListItemSubTagOptions' => ['class' => 'page-link'],
+    'firstPageLabel' => '«',
+    'lastPageLabel' => '»',
+    'prevPageLabel' => '‹',
+    'nextPageLabel' => '›',
+    'maxButtonCount' => 7,
+]) : '';
+$shownFrom = $totalRows > 0 ? $pagination->offset + 1 : 0;
+$shownTo = min($pagination->offset + $pagination->limit, $totalRows);
+$perPage = (int)$pagination->getPageSize();
 ?>
 <div class="purchase-planning-index">
     <div class="card">
@@ -122,6 +142,27 @@ $fmtQty = function ($n) {
                 <?php endif; ?>
             </div>
 
+            <?php if ($totalRows > 0): ?>
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+                    <div class="text-muted small">
+                        Mostrando <strong><?= $shownFrom ?></strong>&ndash;<strong><?= $shownTo ?></strong>
+                        de <strong><?= $totalRows ?></strong> insumos
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="text-muted small">Por página:</span>
+                        <div class="btn-group btn-group-sm">
+                            <?php foreach ([25, 50, 100] as $n): ?>
+                                <a class="btn btn-outline-secondary <?= $perPage === $n ? 'active' : '' ?>"
+                                   href="<?= Url::current(['per-page' => $n, 'page' => null]) ?>"><?= $n ?></a>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+                <?php if ($pagerHtml): ?>
+                    <nav class="mb-2" aria-label="Paginado de insumos"><?= $pagerHtml ?></nav>
+                <?php endif; ?>
+            <?php endif; ?>
+
             <div class="table-responsive">
                 <table class="table table-striped table-hover align-middle">
                     <thead>
@@ -203,6 +244,10 @@ $fmtQty = function ($n) {
                     </tbody>
                 </table>
             </div>
+
+            <?php if ($pagerHtml): ?>
+                <nav class="mt-3" aria-label="Paginado de insumos"><?= $pagerHtml ?></nav>
+            <?php endif; ?>
         </div>
     </div>
 </div>
