@@ -52,14 +52,16 @@ if ($currentControllerId == 'standard-recipe') {
 
 // Verificar si algún elemento dentro de cada menú está activo
 $configBaseActive = in_array($currentControllerId, ['category', 'recipe-category', 'unit-of-measurement', 'business', 'consumption-center']) || ($currentControllerId == 'business' && $action == 'requisition-rules');
-$gestionInsumosActive = in_array($currentControllerId, ['ingredient-stock', 'provider', 'ingredients', 'purchase-catalog']);
+$gestionInsumosActive = in_array($currentControllerId, ['ingredient-stock', 'provider', 'ingredients']);
 $costeoActive = in_array($currentControllerId, ['sub-standard-recipe', 'standard-recipe', 'convoy', 'menu']);
 $almacenMovimientosActive = in_array($currentControllerId, ['storage', 'movement', 'price-trend']);
 // Active flag for Centros de consumo inside Configuración Base (also mark active when on requisition rules action)
 $centrosConsumoActive = in_array($currentControllerId, ['consumption-center']) || ($currentControllerId == 'business' && $action == 'requisition-rules');
 $menuVentasActive = in_array($currentControllerId, ['sales', 'menu-recipes', 'saved-menus']);
 $rentabilidadAnalisisActive = in_array($currentControllerId, ['theoretical-yield', 'real-yield', 'charts', 'analytics', 'menu-improvement', 'profit-comparison', 'matrix-bcg']);
-$kpisControlActive = in_array($currentControllerId, ['control-insumos', 'control-almacen', 'compras-vs-consumo', 'planeacion-compras', 'purchase-planning', 'purchase-request', 'comparativa-costo', 'eficiencia-uso', 'mix-ventas', 'factibilidad', 'estado-resultados']);
+$kpisControlActive = in_array($currentControllerId, ['control-insumos', 'control-almacen', 'compras-vs-consumo', 'planeacion-compras', 'comparativa-costo', 'eficiencia-uso', 'mix-ventas', 'factibilidad', 'estado-resultados']);
+// Sección "Compras": planeación (con su calendario), solicitudes a proveedores y catálogo de compras.
+$comprasActive = in_array($currentControllerId, ['purchase-planning', 'purchase-request', 'purchase-catalog']);
 $gastosActive = in_array($currentControllerId, ['expense', 'expense-movement', 'expense-unit-measurement', 'expense-category', 'expense-subcategory']);
 $rrhhActive = in_array($currentControllerId, ['empleado', 'plantilla']);
 $administracionConfiguracionActive = in_array($currentControllerId, ['users', 'business']);
@@ -183,13 +185,6 @@ $administracionConfiguracionActive = in_array($currentControllerId, ['users', 'b
                             <li class="menu-item <?= $currentControllerId == 'ingredients' ? 'active' : '' ?>">
                                 <a href="<?= \yii\helpers\Url::to(['/provider/ingredients']) ?>" class="menu-link">
                                     <div><?= Yii::t('app', 'Insumos por Proveedores') ?></div>
-                                </a>
-                            </li>
-                        <?php endif; ?>
-                        <?php if ($isAdmin || Yii::$app->user->can('ingredients_list')): ?>
-                            <li class="menu-item <?= $currentControllerId == 'purchase-catalog' ? 'active' : '' ?>">
-                                <a href="<?= \yii\helpers\Url::to(['/purchase-catalog/index']) ?>" class="menu-link">
-                                    <div><?= Yii::t('app', 'Catálogo de compras') ?></div>
                                 </a>
                             </li>
                         <?php endif; ?>
@@ -473,7 +468,50 @@ $administracionConfiguracionActive = in_array($currentControllerId, ['users', 'b
                 </div>
             </li>
         <?php endif; ?>
-        <!-- KPI's y Control -->
+        <!-- Compras -->
+        <?php
+        $canPlanPurchases = $isAdmin || Yii::$app->user->can('kpi_access');
+        $canSeePurchaseCatalog = $isAdmin || Yii::$app->user->can('ingredients_list');
+        ?>
+        <?php if ($canPlanPurchases || $canSeePurchaseCatalog): ?>
+            <li class="menu-item <?= $comprasActive ? 'active open' : '' ?>">
+                <a class="menu-link" data-bs-toggle="collapse" href="#compras" role="button"
+                    aria-expanded="<?= $comprasActive ? 'true' : 'false' ?>"
+                    aria-controls="compras">
+                    <div><?= Yii::t('app', 'Compras') ?></div>
+                </a>
+                <div class="collapse <?= $comprasActive ? 'show' : '' ?>" id="compras">
+                    <ul class="sub-menu">
+                        <?php if ($canPlanPurchases): ?>
+                            <!-- Qué comprar la semana que viene (stock ideal según el nivel de la semana) -->
+                            <li class="menu-item <?= ($currentControllerId == 'purchase-planning' && $action != 'calendar') ? 'active' : '' ?>">
+                                <a href="<?= \yii\helpers\Url::to(['/purchase-planning/index']) ?>" class="menu-link">
+                                    <div><?= Yii::t('app', 'Planeación de compras') ?></div>
+                                </a>
+                            </li>
+                            <li class="menu-item <?= ($currentControllerId == 'purchase-planning' && $action == 'calendar') ? 'active' : '' ?>">
+                                <a href="<?= \yii\helpers\Url::to(['/purchase-planning/calendar']) ?>" class="menu-link">
+                                    <div><?= Yii::t('app', 'Calendario de compras') ?></div>
+                                </a>
+                            </li>
+                            <li class="menu-item <?= $currentControllerId == 'purchase-request' ? 'active' : '' ?>">
+                                <a href="<?= \yii\helpers\Url::to(['/purchase-request/index']) ?>" class="menu-link">
+                                    <div><?= Yii::t('app', 'Solicitudes de compra') ?></div>
+                                </a>
+                            </li>
+                        <?php endif; ?>
+                        <?php if ($canSeePurchaseCatalog): ?>
+                            <li class="menu-item <?= $currentControllerId == 'purchase-catalog' ? 'active' : '' ?>">
+                                <a href="<?= \yii\helpers\Url::to(['/purchase-catalog/index']) ?>" class="menu-link">
+                                    <div><?= Yii::t('app', 'Catálogo de compras') ?></div>
+                                </a>
+                            </li>
+                        <?php endif; ?>
+                    </ul>
+                </div>
+            </li>
+        <?php endif; ?>
+
         <!-- KPI's y Control -->
         <?php if ($isAdmin || Yii::$app->user->can('kpi_access')): ?>
             <li class="menu-item <?= $kpisControlActive ? 'active open' : '' ?>">
@@ -498,20 +536,6 @@ $administracionConfiguracionActive = in_array($currentControllerId, ['users', 'b
                             <li class="menu-item <?= $currentControllerId == 'compras-vs-consumo' ? 'active' : '' ?>">
                                 <a href="<?= \yii\helpers\Url::to(['/kpi/compras-vs-consumo']) ?>" class="menu-link">
                                     <div><?= Yii::t('app', 'Compras vs Consumo') ?></div>
-                                </a>
-                            </li>
-                        <?php endif; ?>
-
-                        <!-- Planeación de compras sugerida (stock ideal según nivel de la semana) -->
-                        <?php if ($isAdmin || Yii::$app->user->can('kpi_access')): ?>
-                            <li class="menu-item <?= $currentControllerId == 'purchase-planning' ? 'active' : '' ?>">
-                                <a href="<?= \yii\helpers\Url::to(['/purchase-planning/index']) ?>" class="menu-link">
-                                    <div><?= Yii::t('app', 'Planeación de compras') ?></div>
-                                </a>
-                            </li>
-                            <li class="menu-item <?= $currentControllerId == 'purchase-request' ? 'active' : '' ?>">
-                                <a href="<?= \yii\helpers\Url::to(['/purchase-request/index']) ?>" class="menu-link">
-                                    <div><?= Yii::t('app', 'Solicitudes de compra') ?></div>
                                 </a>
                             </li>
                         <?php endif; ?>
