@@ -19,5 +19,5 @@ return [
     'stripe.secretKey' => "",
     'stripe.publicKey' => "",
     'stripe.webhook' => "",
-    'allergies' => ["Gluten","Crustáceos","Huevo","Pescado","Cacahuetes","Lacteos","Mostaza","Sulfito","Sésamo","Moluscos","Soja","Apio","Apta para embarazadas","Apto para lactancia"]
+    'allergies' => ["Gluten","Crustáceos","Huevo","Pescado","Cacahuates","Lacteos","Mostaza","Sulfito","Sésamo","Moluscos","Soja","Apio","No apta para embarazadas","No apto para lactancia"]
 ];
