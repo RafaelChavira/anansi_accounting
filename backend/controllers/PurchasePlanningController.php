@@ -8,6 +8,7 @@ use common\models\PurchasePlanningConfig;
 use common\models\PurchasePresentation;
 use common\models\PurchaseWeekLevel;
 use Yii;
+use yii\db\Query;
 use yii\filters\AccessControl;
 use yii\filters\VerbFilter;
 use yii\web\Controller;
@@ -69,13 +70,14 @@ class PurchasePlanningController extends Controller
             ->orderBy('ingredient ASC')
             ->all();
 
-        // Catálogo de compras: mejor presentación activa de cada insumo.
-        $catalog = PurchasePresentation::bestForIngredients(
-            $businessId,
-            array_map(function ($s) {
-                return (int)$s->id;
-            }, $stocks)
-        );
+        $stockIds = array_map(function ($s) {
+            return (int)$s->id;
+        }, $stocks);
+
+        // Catálogo de compras (opcional): mejor presentación activa de cada insumo.
+        $catalog = PurchasePresentation::bestForIngredients($businessId, $stockIds);
+        // Último precio de compra de cada insumo (por unidad de compra).
+        $lastPrices = $this->lastPurchasePrices($stockIds);
 
         foreach ($stocks as $stock) {
             $base = (float)$stock->max_stock;
@@ -102,7 +104,12 @@ class PurchasePlanningController extends Controller
             ];
 
             if ($faltante > 0) {
-                $row['compra'] = $this->purchaseFor($stock, $faltante, $catalog[$stock->id] ?? null);
+                $row['compra'] = $this->purchaseFor(
+                    $stock,
+                    $faltante,
+                    $catalog[$stock->id] ?? null,
+                    $lastPrices[$stock->id] ?? null
+                );
             }
             $rows[] = $row;
         }
@@ -156,20 +163,42 @@ class PurchasePlanningController extends Controller
 
     /**
      * Cuánto comprar de un insumo: convierte el faltante (en unidad de uso) a número de
-     * presentaciones. Usa la presentación del catálogo de compras; si el insumo no tiene,
-     * usa su propia unidad de compra (um) con su equivalencia (portions_per_unit).
+     * presentaciones.
+     *
+     * Por defecto usa lo que el propio insumo ya define: su unidad de compra (um), la
+     * equivalencia a unidades de uso (portions_per_unit) y su último precio de compra.
+     * Si el negocio dio de alta una presentación en el catálogo de compras (opcional),
+     * esa tiene prioridad.
      *
      * @param IngredientStock $stock
      * @param float $faltante En unidad de uso.
      * @param PurchasePresentation|null $presentation
+     * @param float|null $lastPrice Último precio de compra por unidad de compra del insumo.
      * @return array|null null si no hay forma de convertir (sin catálogo ni equivalencia).
      */
-    private function purchaseFor(IngredientStock $stock, $faltante, $presentation)
+    private function purchaseFor(IngredientStock $stock, $faltante, $presentation, $lastPrice = null)
     {
+        $ppu = (float)$stock->portions_per_unit;
+        $lastPrice = ($lastPrice !== null && (float)$lastPrice > 0) ? (float)$lastPrice : null;
+        // Precio de una unidad de uso, según el último precio de compra del insumo.
+        $usePrice = ($lastPrice !== null && $ppu > 0) ? $lastPrice / $ppu : null;
+
         if ($presentation !== null) {
             $per = (float)$presentation->units_per_presentation;
             $n = PurchasePresentation::packagesFor($faltante, $per, (float)$presentation->min_order);
             $provider = $presentation->provider;
+
+            if ($presentation->price !== null) {
+                $cost = $n * (float)$presentation->price;
+                $priceSource = 'catalogo';
+            } elseif ($usePrice !== null) {
+                $cost = $n * $per * $usePrice;
+                $priceSource = 'insumo';
+            } else {
+                $cost = 0.0;
+                $priceSource = null;
+            }
+
             return [
                 'origen' => 'catalogo',
                 'presentacion_id' => $presentation->id,
@@ -177,25 +206,56 @@ class PurchasePlanningController extends Controller
                 'proveedor' => $provider ? ($provider->business_name ?: $provider->name) : null,
                 'contenido' => $per,
                 'cantidad' => $n,
-                'costo' => $presentation->price !== null ? $n * (float)$presentation->price : 0.0,
-                'tiene_precio' => $presentation->price !== null,
+                'costo' => $cost,
+                'tiene_precio' => $priceSource !== null,
+                'precio_origen' => $priceSource,
             ];
         }
 
-        $per = (float)$stock->portions_per_unit;
-        if ($per > 0 && $stock->um) {
+        if ($ppu > 0 && $stock->um) {
+            $n = PurchasePresentation::packagesFor($faltante, $ppu, 1);
             return [
                 'origen' => 'insumo',
                 'presentacion_id' => null,
                 'nombre' => $stock->um,
                 'proveedor' => null,
-                'contenido' => $per,
-                'cantidad' => PurchasePresentation::packagesFor($faltante, $per, 1),
-                'costo' => 0.0,
-                'tiene_precio' => false,
+                'contenido' => $ppu,
+                'cantidad' => $n,
+                // El último precio ya es por unidad de compra: n × precio.
+                'costo' => $lastPrice !== null ? $n * $lastPrice : 0.0,
+                'tiene_precio' => $lastPrice !== null,
+                'precio_origen' => $lastPrice !== null ? 'insumo' : null,
             ];
         }
         return null;
+    }
+
+    /**
+     * Último precio de compra (por unidad de compra) de cada insumo, tomado del historial
+     * stock_price con el mismo criterio que IngredientStock::getLastPrice() (fecha e id más recientes).
+     * Una sola consulta para todos los insumos, no una por insumo.
+     *
+     * @param int[] $stockIds
+     * @return array [stock_id => price]
+     */
+    private function lastPurchasePrices(array $stockIds)
+    {
+        if (empty($stockIds)) {
+            return [];
+        }
+        $rows = (new Query())
+            ->select(['stock_id', 'price'])
+            ->from('stock_price')
+            ->where(['stock_id' => $stockIds])
+            ->orderBy(['stock_id' => SORT_ASC, 'date' => SORT_ASC, 'id' => SORT_ASC])
+            ->all();
+
+        $last = [];
+        foreach ($rows as $r) {
+            // Orden ascendente: la última fila de cada insumo es la más reciente.
+            $last[(int)$r['stock_id']] = (float)$r['price'];
+        }
+        return $last;
     }
 
     /**

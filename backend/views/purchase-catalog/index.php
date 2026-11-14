@@ -29,10 +29,12 @@ $qty = function ($n) {
 
     <div class="alert alert-info">
         <i class="fas fa-info-circle"></i>
-        Aquí enlazas cada insumo con las <strong>presentaciones en que lo vende un proveedor</strong>
-        (por ejemplo "Caja de 24 piezas"). El contenido se expresa en la <strong>unidad de uso</strong> del insumo,
-        que es en la que se lleva la existencia. La planeación de compras usa este catálogo para decirte
-        cuántas cajas o paquetes comprar. Primero da de alta el insumo y el proveedor en sus catálogos.
+        <strong>Este catálogo es opcional.</strong> Cada insumo ya define su <em>unidad de compra</em>, su
+        <em>equivalencia a unidades de uso</em> y su <em>precio de compra</em>, y la planeación de compras usa esos
+        datos por defecto. Úsalo solo cuando necesites <strong>otra presentación u otro proveedor</strong> para un
+        insumo (por ejemplo "Caja de 24 piezas" de un proveedor y "Caja de 12" de otro), con su código y su mínimo
+        por pedido. El contenido se expresa en la <strong>unidad de uso</strong> del insumo. Si defines una
+        presentación aquí, la planeación la usa en lugar de la del insumo.
     </div>
 
     <form method="get" action="<?= Url::to(['index']) ?>" class="row g-2 mb-3 align-items-end">

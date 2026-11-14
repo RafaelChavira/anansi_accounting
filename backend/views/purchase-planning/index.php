@@ -61,8 +61,11 @@ $fmtQty = function ($n) {
                 <small>
                     Stock ideal = stock máximo del insumo &times; factor del nivel.
                     Falta = stock ideal &minus; existencia actual. Existencia y stocks se expresan en la
-                    <strong>unidad de uso</strong> del insumo; la columna "Comprar" lo convierte a la presentación
-                    de compra (se redondea hacia arriba).
+                    <strong>unidad de uso</strong> del insumo. La columna "Comprar" lo convierte a su
+                    <strong>unidad de compra</strong> usando la equivalencia y el último precio de compra que ya
+                    tiene el insumo (se redondea hacia arriba). Si necesitas otra presentación o proveedor para un
+                    insumo, puedes definirla en el <a href="<?= Url::to(['/purchase-catalog/index']) ?>">catálogo de compras</a>
+                    (opcional).
                 </small>
             </div>
 
@@ -91,7 +94,7 @@ $fmtQty = function ($n) {
                         <div class="info-box-content">
                             <span class="info-box-text">Costo estimado de la compra</span>
                             <span class="info-box-number">$<?= number_format((float)$costoTotal, 2, ',', '.') ?></span>
-                            <small>solo insumos cuya presentación tiene precio</small>
+                            <small>según el último precio de compra de cada insumo</small>
                         </div>
                     </div>
                 </div>
@@ -99,9 +102,9 @@ $fmtQty = function ($n) {
                     <div class="info-box">
                         <span class="info-box-icon bg-warning"><i class="fas fa-box-open"></i></span>
                         <div class="info-box-content">
-                            <span class="info-box-text">Sin presentación de compra</span>
+                            <span class="info-box-text">Sin equivalencia de compra</span>
                             <span class="info-box-number"><?= (int)$sinPresentacion ?></span>
-                            <small>agrégalas en el <a href="<?= Url::to(['/purchase-catalog/index']) ?>">catálogo de compras</a></small>
+                            <small>completa la equivalencia en el insumo o define una presentación</small>
                         </div>
                     </div>
                 </div>
@@ -163,9 +166,15 @@ $fmtQty = function ($n) {
                                     <span class="text-muted">—</span>
                                 <?php elseif ($c === null): ?>
                                     <a class="btn btn-sm btn-outline-warning"
-                                       href="<?= Url::to(['/purchase-catalog/create', 'ingredient_stock_id' => $r['id']]) ?>">
-                                        <i class="fas fa-plus"></i> Definir presentación
+                                       href="<?= Url::to(['/ingredient-stock/update', 'id' => $r['id']]) ?>">
+                                        <i class="fas fa-edit"></i> Completar equivalencia en el insumo
                                     </a>
+                                    <br>
+                                    <small>
+                                        <a href="<?= Url::to(['/purchase-catalog/create', 'ingredient_stock_id' => $r['id']]) ?>">
+                                            o definir una presentación
+                                        </a>
+                                    </small>
                                 <?php else: ?>
                                     <strong><?= (int)$c['cantidad'] ?> &times; <?= Html::encode($c['nombre']) ?></strong>
                                     <small class="text-muted">
@@ -182,6 +191,9 @@ $fmtQty = function ($n) {
                             <td class="text-end">
                                 <?php if ($r['compra'] !== null && $r['compra']['tiene_precio']): ?>
                                     $<?= number_format((float)$r['compra']['costo'], 2, ',', '.') ?>
+                                    <?php if ($r['compra']['precio_origen'] === 'insumo'): ?>
+                                        <br><small class="text-muted">último precio del insumo</small>
+                                    <?php endif; ?>
                                 <?php else: ?>
                                     <span class="text-muted">—</span>
                                 <?php endif; ?>
