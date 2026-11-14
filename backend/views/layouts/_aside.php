@@ -59,7 +59,7 @@ $almacenMovimientosActive = in_array($currentControllerId, ['storage', 'movement
 $centrosConsumoActive = in_array($currentControllerId, ['consumption-center']) || ($currentControllerId == 'business' && $action == 'requisition-rules');
 $menuVentasActive = in_array($currentControllerId, ['sales', 'menu-recipes', 'saved-menus']);
 $rentabilidadAnalisisActive = in_array($currentControllerId, ['theoretical-yield', 'real-yield', 'charts', 'analytics', 'menu-improvement', 'profit-comparison', 'matrix-bcg']);
-$kpisControlActive = in_array($currentControllerId, ['control-insumos', 'control-almacen', 'compras-vs-consumo', 'planeacion-compras', 'comparativa-costo', 'eficiencia-uso', 'mix-ventas', 'factibilidad', 'estado-resultados']);
+$kpisControlActive = in_array($currentControllerId, ['control-insumos', 'control-almacen', 'compras-vs-consumo', 'planeacion-compras', 'purchase-planning', 'comparativa-costo', 'eficiencia-uso', 'mix-ventas', 'factibilidad', 'estado-resultados']);
 $gastosActive = in_array($currentControllerId, ['expense', 'expense-movement', 'expense-unit-measurement', 'expense-category', 'expense-subcategory']);
 $rrhhActive = in_array($currentControllerId, ['empleado', 'plantilla']);
 $administracionConfiguracionActive = in_array($currentControllerId, ['users', 'business']);
@@ -491,6 +491,15 @@ $administracionConfiguracionActive = in_array($currentControllerId, ['users', 'b
                             <li class="menu-item <?= $currentControllerId == 'compras-vs-consumo' ? 'active' : '' ?>">
                                 <a href="<?= \yii\helpers\Url::to(['/kpi/compras-vs-consumo']) ?>" class="menu-link">
                                     <div><?= Yii::t('app', 'Compras vs Consumo') ?></div>
+                                </a>
+                            </li>
+                        <?php endif; ?>
+
+                        <!-- Planeación de compras sugerida (stock ideal según nivel de la semana) -->
+                        <?php if ($isAdmin || Yii::$app->user->can('kpi_access')): ?>
+                            <li class="menu-item <?= $currentControllerId == 'purchase-planning' ? 'active' : '' ?>">
+                                <a href="<?= \yii\helpers\Url::to(['/purchase-planning/index']) ?>" class="menu-link">
+                                    <div><?= Yii::t('app', 'Planeación de compras') ?></div>
                                 </a>
                             </li>
                         <?php endif; ?>
