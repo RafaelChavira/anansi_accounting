@@ -97,37 +97,51 @@ $perPage = (int)$pagination->getPageSize();
                 </div>
             <?php endif; ?>
 
-            <div class="row mb-3">
-                <div class="col-md-4">
-                    <div class="info-box">
-                        <span class="info-box-icon bg-danger"><i class="fas fa-cart-plus"></i></span>
-                        <div class="info-box-content">
-                            <span class="info-box-text">Insumos por comprar</span>
-                            <span class="info-box-number"><?= (int)$totalConFaltante ?></span>
-                            <small>de <?= (int)$totalConfigurados ?> con stock máximo definido</small>
+            <?php
+            // Tarjetas de resumen con el estilo del tema (Sneat): icono boxicons dentro de un cuadro de color.
+            $summaryCards = [
+                [
+                    'color' => 'danger',
+                    'icon' => 'bx-cart',
+                    'title' => 'Insumos por comprar',
+                    'value' => (string)(int)$totalConFaltante,
+                    'note' => 'de ' . (int)$totalConfigurados . ' con stock máximo definido',
+                ],
+                [
+                    'color' => 'success',
+                    'icon' => 'bx-dollar-circle',
+                    'title' => 'Costo estimado de la compra',
+                    'value' => '$' . number_format((float)$costoTotal, 2, ',', '.'),
+                    'note' => 'según el último precio de compra de cada insumo',
+                ],
+                [
+                    'color' => 'warning',
+                    'icon' => 'bx-error-circle',
+                    'title' => 'Sin equivalencia de compra',
+                    'value' => (string)(int)$sinPresentacion,
+                    'note' => 'completa la equivalencia en el insumo o define una presentación',
+                ],
+            ];
+            ?>
+            <div class="row g-3 mb-3">
+                <?php foreach ($summaryCards as $card): ?>
+                    <div class="col-md-4">
+                        <div class="card h-100 shadow-none border">
+                            <div class="card-body d-flex align-items-center gap-3">
+                                <div class="avatar avatar-md flex-shrink-0">
+                                    <span class="avatar-initial rounded bg-label-<?= $card['color'] ?>">
+                                        <i class="bx <?= $card['icon'] ?> bx-sm"></i>
+                                    </span>
+                                </div>
+                                <div>
+                                    <div class="text-muted small"><?= Html::encode($card['title']) ?></div>
+                                    <h4 class="mb-0"><?= Html::encode($card['value']) ?></h4>
+                                    <small class="text-muted"><?= Html::encode($card['note']) ?></small>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="info-box">
-                        <span class="info-box-icon bg-success"><i class="fas fa-dollar-sign"></i></span>
-                        <div class="info-box-content">
-                            <span class="info-box-text">Costo estimado de la compra</span>
-                            <span class="info-box-number">$<?= number_format((float)$costoTotal, 2, ',', '.') ?></span>
-                            <small>según el último precio de compra de cada insumo</small>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="info-box">
-                        <span class="info-box-icon bg-warning"><i class="fas fa-box-open"></i></span>
-                        <div class="info-box-content">
-                            <span class="info-box-text">Sin equivalencia de compra</span>
-                            <span class="info-box-number"><?= (int)$sinPresentacion ?></span>
-                            <small>completa la equivalencia en el insumo o define una presentación</small>
-                        </div>
-                    </div>
-                </div>
+                <?php endforeach; ?>
             </div>
 
             <div class="mb-2">
@@ -158,9 +172,6 @@ $perPage = (int)$pagination->getPageSize();
                         </div>
                     </div>
                 </div>
-                <?php if ($pagerHtml): ?>
-                    <nav class="mb-2" aria-label="Paginado de insumos"><?= $pagerHtml ?></nav>
-                <?php endif; ?>
             <?php endif; ?>
 
             <div class="table-responsive">

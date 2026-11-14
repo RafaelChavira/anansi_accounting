@@ -35,7 +35,7 @@ $fmtDate = function ($ymd) {
     $exActual = 22;   // existencia actual del insumo de ejemplo
     ?>
     <div class="card border-info mb-3">
-        <div class="card-header bg-info bg-opacity-10">
+        <div class="card-header bg-label-info">
             <h3 class="card-title mb-0"><i class="fas fa-lightbulb"></i> ¿Para qué sirven los factores?</h3>
         </div>
         <div class="card-body">
