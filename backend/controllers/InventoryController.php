@@ -322,8 +322,8 @@ public function actionCreate()
         $perPage = Yii::$app->request->get('per-page');
         
         // Si perPage no viene en la URL o no es válido, usar el valor guardado en la cookie
-        if (!$perPage || !in_array((int)$perPage, [20, 50, 100])) {
-            $perPage = $savedPageSize;
+        if (!$perPage || !in_array((int)$perPage, [20, 50, 100, 500])) {
+            $perPage = in_array($savedPageSize, [20, 50, 100, 500]) ? $savedPageSize : 20;
         } else {
             // Solo guardar una nueva cookie si el valor es diferente al que ya tenemos
             if ((int)$perPage !== $savedPageSize) {
